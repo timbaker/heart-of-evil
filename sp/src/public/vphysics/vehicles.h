@@ -243,6 +243,9 @@ enum PassengerSeatAnimType_t
 {
 	PASSENGER_SEAT_ENTRY,
 	PASSENGER_SEAT_EXIT
+#ifdef HOE_DLL
+	, PASSENGER_SEAT_IDLE
+#endif // HOE_DLL
 };
 
 #define VEHICLE_SEAT_INVALID	-1		// An invalid seat

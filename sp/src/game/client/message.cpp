@@ -734,6 +734,13 @@ void CHudMessage::MessageAdd( const char *pName )
 	{
 		pMessage = TextMessageGet( pName );
 	}
+#ifdef HOE_DLL
+	if ( !pMessage ) DevWarning("CHudMessage::MessageAdd NULL returned by TextMessageGet('%s')\n", pName);
+
+	// error in MessageDrawScan if len==0
+	if ( pMessage && Q_strlen( pMessage->pMessage ) == 0 )
+		return;
+#endif
 
 	if ( !pMessage )
 		return;
@@ -836,6 +843,12 @@ void CHudMessage::MsgFunc_HudMsg(bf_read &msg)
 	
 	if ( !pNetMessage || !pNetMessage->pMessage )
 		return;
+
+#ifdef HOE_DLL
+	// error in MessageDrawScan if len==0
+	if ( Q_strlen( pNetMessage->pMessage ) == 0 )
+		return;
+#endif
 
 	pNetMessage->x = msg.ReadFloat();
 	pNetMessage->y = msg.ReadFloat();

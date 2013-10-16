@@ -33,6 +33,9 @@
 #include "SceneCache.h"
 #include "scripted.h"
 #include "env_debughistory.h"
+#ifdef HOE_DLL
+#include "hoe/closedcaption_shared.h"
+#endif
 
 #ifdef HL2_EPISODIC
 #include "npc_alyx_episodic.h"
@@ -43,6 +46,10 @@
 
 extern ISoundEmitterSystemBase *soundemitterbase;
 extern ISceneFileCache *scenefilecache;
+
+#ifdef HOE_DLL
+extern short g_nClosedCaptionID;
+#endif // HOE_DLL
 
 class CSceneEntity;
 class CBaseFlex;
@@ -1560,7 +1567,15 @@ bool AttenuateCaption( const char *token, const Vector& listener, CUtlVector< Ve
 		return false;
 	}
 
+#ifdef HOE_DLL
+	// Fixme: client tries token_male and token_female sometimes
+	const ClosedCaptionInfo_t *info = closedcaptionsinfo->GetCaptionInfo( token );
+	int attenuation = info ? info->attenuation : 5;
+	float maxdist = scene_maxcaptionradius.GetFloat() * (attenuation/5.0f);
+	float maxdistSqr = maxdist * maxdist;
+#else // HOE_DLL
 	float maxdistSqr = scene_maxcaptionradius.GetFloat() * scene_maxcaptionradius.GetFloat();
+#endif // HOE_DLL
 
 	for ( int i = 0; i  < c; ++i )
 	{
@@ -1854,6 +1869,10 @@ void CSceneEntity::DispatchStartSpeak( CChoreoScene *scene, CBaseFlex *actor, CC
 					// Send caption and duration hint down to client
 					UserMessageBegin( filter, "CloseCaption" );
 						WRITE_STRING( lowercase );
+#ifdef HOE_DLL
+						WRITE_STRING( STRING(actor->GetCCImageName()) );
+						WRITE_SHORT( (actor->m_nClosedCaptionID = ++g_nClosedCaptionID) );
+#endif // HOE_DLL
 						WRITE_SHORT( MIN( 255, (int)( duration * 10.0f ) ) );
 						WRITE_BYTE( byteflags ); // warn on missing
 					MessageEnd();
@@ -3345,6 +3364,51 @@ bool CSceneEntity::ShouldNetwork() const
 
 CChoreoScene *CSceneEntity::LoadScene( const char *filename, IChoreoEventCallback *pCallback )
 {
+#ifdef HOE_DLL
+    // https://developer.valvesoftware.com/wiki/Scenes.image
+    // So we don't have to build scenes.image
+	char loadfile[MAX_PATH];
+	Q_strncpy( loadfile, filename, sizeof( loadfile ) );
+	Q_SetExtension( loadfile, ".vcd", sizeof( loadfile ) );
+	Q_FixSlashes( loadfile );
+ 
+	void *pBuffer = 0;
+	CChoreoScene *pScene;
+ 
+	int fileSize = filesystem->ReadFileEx( loadfile, "MOD", &pBuffer, true );
+	if (fileSize)
+	{
+		g_TokenProcessor.SetBuffer((char*)pBuffer);
+		pScene = ChoreoLoadScene( loadfile, NULL, &g_TokenProcessor, LocalScene_Printf );
+	}
+	else
+	{
+		// binary compiled vcd
+		pScene = new CChoreoScene( NULL );
+		if ( !CopySceneFileIntoMemory( loadfile, &pBuffer, &fileSize ) )
+		{
+			MissingSceneWarning( loadfile );
+			return NULL;
+		}
+		CUtlBuffer buf( pBuffer, fileSize, CUtlBuffer::READ_ONLY );
+		if ( !pScene->RestoreFromBinaryBuffer( buf, loadfile, &g_ChoreoStringPool ) )
+		{
+			Warning( "CSceneEntity::LoadScene: Unable to load scene '%s'\n", loadfile );
+			delete pScene;
+			pScene = NULL;
+		}
+	}
+ 
+	if(pScene)
+	{
+		pScene->SetPrintFunc( LocalScene_Printf );
+		pScene->SetEventCallbackInterface( pCallback );
+	}
+ 
+	FreeSceneFileMemory( pBuffer );
+	return pScene;
+#else // HOE_DLL
+
 	DevMsg( 2, "Blocking load of scene from '%s'\n", filename );
 
 	char loadfile[MAX_PATH];
@@ -3377,6 +3441,7 @@ CChoreoScene *CSceneEntity::LoadScene( const char *filename, IChoreoEventCallbac
 
 	FreeSceneFileMemory( pBuffer );
 	return pScene;
+#endif // HOE_DLL
 }
 
 CChoreoScene *BlockingLoadScene( const char *filename )
@@ -4622,6 +4687,65 @@ int GetSceneSpeechCount( char const *pszScene )
 	return 0;
 }
 
+#ifdef HOE_DLL
+// HOE - Since we used the Wiki hack to load loose scene files, we must also precache them.
+static void PrecacheLooseScene( CChoreoScene *scene )
+{
+	Assert( scene );
+
+	// Iterate events and precache necessary resources
+	for ( int i = 0; i < scene->GetNumEvents(); i++ )
+	{
+		CChoreoEvent *event = scene->GetEvent( i );
+		if ( !event )
+			continue;
+
+		// load any necessary data
+		switch (event->GetType() )
+		{
+		default:
+			break;
+		case CChoreoEvent::SPEAK:
+			{
+				// Defined in SoundEmitterSystem.cpp
+				// NOTE:  The script entries associated with .vcds are forced to preload to avoid
+				//  loading hitches during triggering
+				CSceneEntity::PrecacheScriptSound( event->GetParameters() );
+
+				if ( event->GetCloseCaptionType() == CChoreoEvent::CC_MASTER && 
+					 event->GetNumSlaves() > 0 )
+				{
+					char tok[ CChoreoEvent::MAX_CCTOKEN_STRING ];
+					if ( event->GetPlaybackCloseCaptionToken( tok, sizeof( tok ) ) )
+					{
+						CSceneEntity::PrecacheScriptSound( tok );
+					}
+				}
+			}
+			break;
+		case CChoreoEvent::SUBSCENE:
+			{
+				// Only allow a single level of subscenes for now
+				if ( !scene->IsSubScene() )
+				{
+					CChoreoScene *subscene = event->GetSubScene();
+					if ( !subscene )
+					{
+						subscene = CSceneEntity::LoadScene( event->GetParameters(), 0 );
+						subscene->SetSubScene( true );
+						event->SetSubScene( subscene );
+
+						// Now precache it's resources, if any
+						PrecacheLooseScene( subscene );
+					}
+				}
+			}
+			break;
+		}
+	}
+}
+#endif
+
 //-----------------------------------------------------------------------------
 // Purpose: Used for precaching instanced scenes
 // Input  : *pszScene - 
@@ -4645,6 +4769,23 @@ void PrecacheInstancedScene( char const *pszScene )
 	SceneCachedData_t sceneData;
 	if ( !scenefilecache->GetSceneCachedData( pszScene, &sceneData ) )
 	{
+#ifdef HOE_DLL
+		// HOE - Since we used the Wiki hack to load loose scene files, we must also precache them.
+		char loadfile[MAX_PATH];
+		Q_strncpy( loadfile, pszScene, sizeof( loadfile ) );
+		Q_SetExtension( loadfile, ".vcd", sizeof( loadfile ) );
+		Q_FixSlashes( loadfile );
+		void *pBuffer = 0;
+		int fileSize = filesystem->ReadFileEx( loadfile, "MOD", &pBuffer, true );
+		if (fileSize)
+		{
+			g_TokenProcessor.SetBuffer((char*)pBuffer);
+			CChoreoScene *pScene = ChoreoLoadScene( loadfile, NULL, &g_TokenProcessor, LocalScene_Printf );
+			PrecacheLooseScene( pScene );
+			delete pScene;
+		}
+		FreeSceneFileMemory( pBuffer );
+#endif
 		// Scenes are sloppy and don't always exist.
 		// A scene that is not in the pre-built cache image, but on disk, is a true error.
 		if ( developer.GetInt() && ( IsX360() && ( g_pFullFileSystem->GetDVDMode() != DVDMODE_STRICT ) && g_pFullFileSystem->FileExists( pszScene, "GAME" ) ) )

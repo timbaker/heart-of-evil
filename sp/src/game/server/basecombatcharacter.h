@@ -307,8 +307,13 @@ public:
 	CBaseEntity				*FindHealthItem( const Vector &vecPosition, const Vector &range );
 
 
+#ifdef HOE_DLL
+	virtual CBaseEntity		*CheckTraceHullAttack( float flDist, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float flForceScale = 1.0f, bool bDamageAnyNPC = false, Vector forceVector = vec3_origin );
+	virtual CBaseEntity		*CheckTraceHullAttack( const Vector &vStart, const Vector &vEnd, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float flForceScale = 1.0f, bool bDamageAnyNPC = false, Vector forceVector = vec3_origin );
+#else
 	virtual CBaseEntity		*CheckTraceHullAttack( float flDist, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float forceScale = 1.0f, bool bDamageAnyNPC = false );
 	virtual CBaseEntity		*CheckTraceHullAttack( const Vector &vStart, const Vector &vEnd, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float flForceScale = 1.0f, bool bDamageAnyNPC = false );
+#endif
 
 	virtual CBaseCombatCharacter *MyCombatCharacterPointer( void ) { return this; }
 
@@ -468,7 +473,11 @@ private:
 	void				DestroyGlowEffect( void );
 
 protected:
+#ifdef HOE_DLL
+	CNetworkVar( int, m_bloodColor );	// color of blood particless
+#else // HOE_DLL
 	int			m_bloodColor;			// color of blood particless
+#endif // HOE_DLL
 
 	// -------------------
 	// combat ability data
@@ -583,8 +592,13 @@ public:
 	// It does have a base, but we'll never network anything below here..
 	DECLARE_CLASS_NOBASE( CTraceFilterMelee );
 	
+#ifdef HOE_DLL
+	CTraceFilterMelee( const IHandleEntity *passentity, int collisionGroup, CTakeDamageInfo *dmgInfo, float flForceScale, bool bDamageAnyNPC, Vector forceVector = vec3_origin )
+		: m_pPassEnt(passentity), m_collisionGroup(collisionGroup), m_dmgInfo(dmgInfo), m_pHit(NULL), m_flForceScale(flForceScale), m_bDamageAnyNPC(bDamageAnyNPC), m_forceVector(forceVector)
+#else
 	CTraceFilterMelee( const IHandleEntity *passentity, int collisionGroup, CTakeDamageInfo *dmgInfo, float flForceScale, bool bDamageAnyNPC )
 		: m_pPassEnt(passentity), m_collisionGroup(collisionGroup), m_dmgInfo(dmgInfo), m_pHit(NULL), m_flForceScale(flForceScale), m_bDamageAnyNPC(bDamageAnyNPC)
+#endif
 	{
 	}
 	
@@ -597,6 +611,9 @@ public:
 	CBaseEntity			*m_pHit;
 	float				m_flForceScale;
 	bool				m_bDamageAnyNPC;
+#ifdef HOE_DLL
+	Vector				m_forceVector;
+#endif
 };
 
 #endif // BASECOMBATCHARACTER_H

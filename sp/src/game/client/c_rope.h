@@ -136,6 +136,12 @@ public:
 	virtual bool	GetAttachment( int number, Vector &origin );
 	virtual bool	GetAttachmentVelocity( int number, Vector &originVel, Quaternion &angleVel );
 
+#define HOE_ROPE_DLIGHT
+#ifdef HOE_ROPE_DLIGHT
+	void UpdateLightValues( void );
+	float m_flLastRenderTime;
+#endif
+
 private:
 	
 	void			FinishInit( const char *pMaterialName );

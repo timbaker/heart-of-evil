@@ -73,7 +73,11 @@ m_nTransitionSequence( -1 )
 //-----------------------------------------------------------------------------
 // Purpose: Enables the behavior to run
 //-----------------------------------------------------------------------------
+#ifdef HOE_DLL
+void CAI_PassengerBehavior::Enable( CBaseEntity *pVehicle, bool bImmediateEnter /*= false*/ ) 
+#else // HOE_DLL
 void CAI_PassengerBehavior::Enable( CPropJeepEpisodic *pVehicle, bool bImmediateEnter /*= false*/ ) 
+#endif // HOE_DLL
 { 
 	if ( m_bEnabled && m_hVehicle.Get() )
 		return;
@@ -163,7 +167,11 @@ void CAI_PassengerBehavior::ExitVehicle( void )
 		return;
 
 	// Cannot exit while we're upside down
+#ifdef HOE_DLL
+	if ( !m_hVehicle->GetServerVehicle()->IsVehicleUpright() )
+#else
 	if ( m_hVehicle->IsOverturned() )
+#endif
 		return;
 
 	// Interrupt what we're doing
@@ -266,7 +274,15 @@ void CAI_PassengerBehavior::FinishEnterVehicle( void )
 	}
 	
 	// Tell the vehicle we've succeeded 
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	pCarrier->NPC_FinishedEnterVehicle( GetOuter(), (IsPassengerHostile()==false) );
+
+	variant_t emptyVariant;
+	GetOuter()->AcceptInput( "FinishedEnterVehicle", m_hVehicle, m_hVehicle, emptyVariant, 0 );
+#else
 	m_hVehicle->NPC_FinishedEnterVehicle( GetOuter(), (IsPassengerHostile()==false) );
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -297,8 +313,17 @@ void CAI_PassengerBehavior::FinishExitVehicle( void )
 		pPhysObj->EnableCollisions( true );
 	}
 
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	pCarrier->NPC_RemovePassenger( GetOuter() );
+	pCarrier->NPC_FinishedExitVehicle( GetOuter(), (IsPassengerHostile()==false) );
+
+	variant_t emptyVariant;
+	GetOuter()->AcceptInput( "FinishedExitVehicle", m_hVehicle, m_hVehicle, emptyVariant, 0 );
+#else
 	m_hVehicle->NPC_RemovePassenger( GetOuter() );
 	m_hVehicle->NPC_FinishedExitVehicle( GetOuter(), (IsPassengerHostile()==false) );
+#endif
 
 	SetPassengerState( PASSENGER_STATE_OUTSIDE );
 
@@ -345,7 +370,11 @@ bool CAI_PassengerBehavior::CanSelectSchedule( void )
 bool CAI_PassengerBehavior::CanExitVehicle( void )
 {
 	// Vehicle must not be overturned
+#ifdef HOE_DLL
+	if ( !m_hVehicle->GetServerVehicle()->IsVehicleUpright() )
+#else
 	if ( m_hVehicle->IsOverturned() )
+#endif
 		return false;
 
 	// Vehicle must be at rest
@@ -593,8 +622,14 @@ bool CAI_PassengerBehavior::ReserveEntryPoint( VehicleSeatQuery_e eSeatSearchTyp
 	// Find any seat to get into
 	int nSeatID = m_hVehicle->GetServerVehicle()->NPC_GetAvailableSeat( GetOuter(), GetRoleName(), eSeatSearchType );
 	if ( nSeatID != VEHICLE_SEAT_INVALID )
+#ifdef HOE_DLL
+	{
+		INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+		return pCarrier->NPC_AddPassenger( GetOuter(), GetRoleName(), nSeatID );
+	}
+#else
 		return m_hVehicle->NPC_AddPassenger( GetOuter(), GetRoleName(), nSeatID );
-
+#endif
 	return false;
 }
 
@@ -726,6 +761,35 @@ int CAI_PassengerBehavior::FindExitSequence( void )
 	return -1;
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+int CAI_PassengerBehavior::FindIdleSequence( void )
+{
+	// If the NPC is in a vehicle, we need to pick an appropriate IDLE animation.
+	// Since different vehicles may require different idle animations we can't
+	// just use ACT_PASSENGER_IDLE.
+
+	const PassengerSeatAnims_t *pAnims = m_hVehicle->GetServerVehicle()->NPC_GetPassengerSeatAnims( GetOuter(), PASSENGER_SEAT_IDLE );
+	if ( pAnims == NULL )
+		return -1;
+
+	// Test each animation (sorted by priority) for the best match
+	for ( int i = 0; i < pAnims->Count(); i++ )
+	{
+		// Find the activity for this animation name
+		const CPassengerSeatTransition *pAnim = &pAnims->Element(i);
+		int nSequence = GetOuter()->LookupSequence( STRING( pAnim->GetAnimationName() ) );
+		if ( nSequence == -1 )
+			continue;
+
+		// FIXME: select weighted sequence from all available
+		return nSequence;
+	}
+
+	return -1;
+}
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: Reserve our exit point so nothing moves into it while we're moving
 // Output : Returns true on success, false on failure.
@@ -734,7 +798,11 @@ bool CAI_PassengerBehavior::ReserveExitPoint( void )
 {
 	// Cannot exit while we're upside down
 	// FIXME: This is probably redundant!
+#ifdef HOE_DLL
+	if ( !m_hVehicle->GetServerVehicle()->IsVehicleUpright() )
+#else
 	if ( m_hVehicle->IsOverturned() )
+#endif
 		return false;
 
 	// Find the exit activity to use
@@ -863,7 +931,13 @@ void CAI_PassengerBehavior::DetachFromVehicle( void )
 	GetOuter()->AddFlag( FL_FLY );
 	GetOuter()->SetGroundEntity( NULL );
 	GetOuter()->SetCollisionGroup( COLLISION_GROUP_NPC );
+#ifdef HOE_DLL
+	CPropVehicle *pProp = dynamic_cast<CPropVehicle *>( m_hVehicle.Get() );
+	if ( pProp != NULL )
+		pProp->RemovePhysicsChild( GetOuter() );
+#else
 	m_hVehicle->RemovePhysicsChild( GetOuter() );
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -889,7 +963,13 @@ void CAI_PassengerBehavior::AttachToVehicle( void )
 	GetEntryTarget( &m_vecTargetPosition, &m_vecTargetAngles );
 
 	// Get physics messages from our attached physics object
+#ifdef HOE_DLL
+	CPropVehicle *pProp = dynamic_cast<CPropVehicle *>( m_hVehicle.Get() );
+	if ( pProp != NULL )
+		pProp->AddPhysicsChild( GetOuter() );
+#else
 	m_hVehicle->AddPhysicsChild( GetOuter() );
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -925,6 +1005,25 @@ void CAI_PassengerBehavior::StartTask( const Task_t *pTask )
 			GetOuter()->RemoveAllGestures();
 		}
 		break;
+
+#ifdef HOE_DLL
+	case TASK_PASSENGER_IDLE:
+		{
+			int iSequence = FindIdleSequence();
+			if ( iSequence != -1 )
+			{
+				GetOuter()->m_iszSceneCustomMoveSeq = AllocPooledString( GetOuter()->GetSequenceName( iSequence ) );
+
+				// Start us playing the correct sequence
+				GetOuter()->SetIdealActivity( ACT_SCRIPT_CUSTOM_MOVE );
+			}
+			else
+			{
+				GetOuter()->SetIdealActivity( (Activity) ACT_PASSENGER_IDLE );
+			}
+		}
+		break;
+#endif // HOE_DLL
 
 	case TASK_PASSENGER_ATTACH_TO_VEHICLE:
 		{
@@ -1024,6 +1123,17 @@ void CAI_PassengerBehavior::RunTask( const Task_t *pTask )
 			}
 		}
 		break;
+
+#ifdef HOE_DLL
+	case TASK_PASSENGER_IDLE:
+		{
+			if ( GetOuter()->IsActivityStarted() )
+			{
+				TaskComplete();
+			}
+		}
+		break;
+#endif // HOE_DLL
 
 	default:
 		BaseClass::RunTask( pTask );
@@ -1305,6 +1415,20 @@ void CAI_PassengerBehavior::GatherVehicleStateConditions( void )
 	}
 
 	// Get the vehicle's boost state
+#ifdef HOE_DLL
+	CPropVehicleDriveable *pProp = dynamic_cast<CPropVehicleDriveable *>( m_hVehicle.Get() );
+	if ( pProp != NULL && pProp->m_nBoostTimeLeft < 100.0f )
+	{
+		if ( m_vehicleState.m_bWasBoosting == false )
+		{
+			m_vehicleState.m_bWasBoosting = true;
+		}
+	}
+	else
+	{
+		m_vehicleState.m_bWasBoosting = false;
+	}
+#else
 	if ( m_hVehicle->m_nBoostTimeLeft < 100.0f )
 	{
 		if ( m_vehicleState.m_bWasBoosting == false )
@@ -1316,9 +1440,14 @@ void CAI_PassengerBehavior::GatherVehicleStateConditions( void )
 	{
 		m_vehicleState.m_bWasBoosting = false;
 	}
+#endif
 
 	// Detect being overturned
+#ifdef HOE_DLL
+	if ( !m_hVehicle->GetServerVehicle()->IsVehicleUpright() )
+#else
 	if ( m_hVehicle->IsOverturned() )
+#endif
 	{
 		SetCondition( COND_PASSENGER_OVERTURNED );
 
@@ -1459,7 +1588,11 @@ void CAI_PassengerBehavior::ModifyOrAppendCriteria( AI_CriteriaSet& criteriaSet 
 		return;
 
 	// Mark whether we're overturned or not
+#ifdef HOE_DLL
+	bool bOverturned = !m_hVehicle->GetServerVehicle()->IsVehicleUpright();
+#else
 	bool bOverturned = m_hVehicle->IsOverturned();
+#endif
 	criteriaSet.AppendCriteria( "vehicle_overturned", bOverturned ? "1" : "0" );
 
 	// Denote whether we're in the vehicle or not
@@ -1478,6 +1611,17 @@ void CAI_PassengerBehavior::ModifyOrAppendCriteria( AI_CriteriaSet& criteriaSet 
 	float flVehicleSpeed = sqrt( m_vehicleState.m_flLastSpeedSqr );
 	criteriaSet.AppendCriteria( "vehicle_speed", UTIL_VarArgs( "%f", flVehicleSpeed  ) );
 
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+
+	// Whether or not the passenger is currently able to enter the vehicle (only accounts for locking really)
+	bool bCanExitVehicle = ( pCarrier->NPC_CanExitVehicle( GetOuter(), true ) );
+	criteriaSet.AppendCriteria( "vehicle_can_exit", bCanExitVehicle ? "1" : "0" );
+
+	// Whether or not the passenger is currently able to exit the vehicle (only accounts for locking really)
+	bool bCanEnterVehicle = ( pCarrier->NPC_CanEnterVehicle( GetOuter(), true ) );
+	criteriaSet.AppendCriteria( "vehicle_can_enter", bCanEnterVehicle ? "1" : "0" );
+#else
 	// Whether or not the passenger is currently able to enter the vehicle (only accounts for locking really)
 	bool bCanExitVehicle = ( m_hVehicle->NPC_CanExitVehicle( GetOuter(), true ) );
 	criteriaSet.AppendCriteria( "vehicle_can_exit", bCanExitVehicle ? "1" : "0" );
@@ -1485,6 +1629,7 @@ void CAI_PassengerBehavior::ModifyOrAppendCriteria( AI_CriteriaSet& criteriaSet 
 	// Whether or not the passenger is currently able to exit the vehicle (only accounts for locking really)
 	bool bCanEnterVehicle = ( m_hVehicle->NPC_CanEnterVehicle( GetOuter(), true ) );
 	criteriaSet.AppendCriteria( "vehicle_can_enter", bCanEnterVehicle ? "1" : "0" );
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1670,6 +1815,9 @@ AI_BEGIN_CUSTOM_SCHEDULE_PROVIDER( CAI_PassengerBehavior )
 
 	DECLARE_TASK( TASK_PASSENGER_ENTER_VEHICLE )
 	DECLARE_TASK( TASK_PASSENGER_EXIT_VEHICLE )
+#ifdef HOE_DLL
+	DECLARE_TASK( TASK_PASSENGER_IDLE )
+#endif // HOE_DLL
 	DECLARE_TASK( TASK_PASSENGER_ATTACH_TO_VEHICLE )
 	DECLARE_TASK( TASK_PASSENGER_DETACH_FROM_VEHICLE )
 	DECLARE_TASK( TASK_PASSENGER_SET_IDEAL_ENTRY_YAW )
@@ -1704,6 +1852,24 @@ AI_BEGIN_CUSTOM_SCHEDULE_PROVIDER( CAI_PassengerBehavior )
 	"		COND_TASK_FAILED"
 	)
 
+#ifdef HOE_DLL
+	DEFINE_SCHEDULE
+	( 
+	SCHED_PASSENGER_IDLE,
+
+	"	Tasks"
+	"		TASK_PASSENGER_IDLE			0" // Chooses an idle sequence for the current vehicle
+	"		TASK_WAIT					2"
+	""
+	"	Interrupts"
+	"		COND_PROVOKED"
+	"		COND_NEW_ENEMY"
+	"		COND_CAN_RANGE_ATTACK1"
+	"		COND_CAN_MELEE_ATTACK1"
+	"		COND_PASSENGER_EXITING"
+	"		COND_HEAR_DANGER"
+	)
+#else // HOE_DLL
 	DEFINE_SCHEDULE
 	( 
 	SCHED_PASSENGER_IDLE,
@@ -1720,6 +1886,7 @@ AI_BEGIN_CUSTOM_SCHEDULE_PROVIDER( CAI_PassengerBehavior )
 	"		COND_PASSENGER_EXITING"
 	"		COND_HEAR_DANGER"
 	)
+#endif // HOE_DLL
 
 	DEFINE_SCHEDULE
 	( 

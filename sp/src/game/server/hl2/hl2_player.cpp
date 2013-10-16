@@ -37,6 +37,9 @@
 #include "ai_basenpc.h"
 #include "AI_Criteria.h"
 #include "npc_barnacle.h"
+#ifdef HOE_DLL
+extern int g_interactionBarnacleVictimBite;
+#endif
 #include "entitylist.h"
 #include "env_zoom.h"
 #include "hl2_gamerules.h"
@@ -54,6 +57,10 @@
 #ifdef PORTAL
 #include "portal_player.h"
 #endif // PORTAL
+
+#ifdef HOE_THIRDPERSON
+#include "bone_setup.h"
+#endif // HOE_THIRDPERSON
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -212,6 +219,11 @@ public:
 #ifdef PORTAL
 	void InputSuppressCrosshair( inputdata_t &inputdata );
 #endif // PORTAL2
+#ifdef HOE_DLL
+	void InputAddLetter( inputdata_t &inputdata ); // NOT USED
+	void InputHideHUD( inputdata_t &inputdata );
+	void InputShowHUD( inputdata_t &inputdata );
+#endif
 
 	void Activate ( void );
 
@@ -395,6 +407,11 @@ CHL2_Player::CHL2_Player()
 
 	m_flArmorReductionTime = 0.0f;
 	m_iArmorReductionFrom = 0;
+
+#ifdef HOE_THIRDPERSON
+	m_PlayerAnimState = CreateHL2MPPlayerAnimState( this );
+	UseClientSideAnimation();
+#endif // HOE_THIRDPERSON
 }
 
 //
@@ -419,6 +436,17 @@ CSuitPowerDevice SuitDeviceBreather( bits_SUIT_DEVICE_BREATHER, 6.7f );		// 100 
 IMPLEMENT_SERVERCLASS_ST(CHL2_Player, DT_HL2_Player)
 	SendPropDataTable(SENDINFO_DT(m_HL2Local), &REFERENCE_SEND_TABLE(DT_HL2Local), SendProxy_SendLocalDataTable),
 	SendPropBool( SENDINFO(m_fIsSprinting) ),
+#ifdef HOE_THIRDPERSON
+	SendPropExclude( "DT_BaseAnimating", "m_flPoseParameter" ),
+	SendPropExclude( "DT_BaseAnimating", "m_flPlaybackRate" ),	
+	SendPropExclude( "DT_BaseAnimating", "m_nSequence" ),
+	SendPropExclude( "DT_BaseEntity", "m_angRotation" ),
+	SendPropExclude( "DT_BaseAnimatingOverlay", "overlay_vars" ),
+
+	// playeranimstate and clientside animation takes care of these on the client
+	SendPropExclude( "DT_ServerAnimationData" , "m_flCycle" ),	
+	SendPropExclude( "DT_AnimTimeMustBeFirst" , "m_flAnimTime" ),
+#endif // HOE_THIRDPERSON
 END_SEND_TABLE()
 
 
@@ -464,11 +492,12 @@ void CHL2_Player::EquipSuit( bool bPlayEffects )
 	BaseClass::EquipSuit();
 	
 	m_HL2Local.m_bDisplayReticle = true;
-
+#ifndef HOE_DLL
 	if ( bPlayEffects == true )
 	{
 		StartAdmireGlovesAnimation();
 	}
+#endif
 }
 
 void CHL2_Player::RemoveSuit( void )
@@ -561,6 +590,19 @@ void CHL2_Player::HandleArmorReduction( void )
 //-----------------------------------------------------------------------------
 void CHL2_Player::PreThink(void)
 {
+#ifdef HOE_THIRDPERSONxxx
+	// Draw a line from the shoot position to the target
+	{
+		Vector shootPos;
+		shootPos = Weapon_ShootPosition();
+		Vector	forward;
+		AngleVectors( EyeAngles() + m_Local.m_vecPunchAngle, &forward );
+		trace_t tr;
+		UTIL_TraceLine( shootPos, shootPos + forward * MAX_TRACE_LENGTH, MASK_ALL, this, COLLISION_GROUP_NONE, &tr );
+		NDebugOverlay::Line(shootPos + forward * 16, tr.endpos, 255, 0, 0, false, 0.035f );
+	}
+#endif
+
 	if ( player_showpredictedposition.GetBool() )
 	{
 		Vector	predPos;
@@ -596,7 +638,19 @@ void CHL2_Player::PreThink(void)
 		CheckSuitUpdate();
 		CheckSuitZoom();
 
+#ifdef HOE_DLL
+		// ItemPostFrame() is called when in a vehicle, so should call this too.
+		ItemPreFrame();
+#endif // HOE_DLL
+
 		WaterMove();	
+
+#ifdef HOE_DLL
+		// The only useable entity while in a vehicle is the vehicle itself,
+		// so this doesn't need to get called repeatedly (but needs to get
+		// called the first time the vehicle is entered).
+		CheckUseableEntity();
+#endif // HOE_DLL
 		return;
 	}
 
@@ -867,6 +921,10 @@ void CHL2_Player::PreThink(void)
 	// Update weapon's ready status
 	UpdateWeaponPosture();
 
+#ifdef HOE_DLL
+	CheckUseableEntity();
+#endif // HOE_DLL
+
 	// Disallow shooting while zooming
 	if ( IsX360() )
 	{
@@ -902,6 +960,13 @@ void CHL2_Player::PostThink( void )
 	{
 		 HandleAdmireGlovesAnimation();
 	}
+
+#ifdef HOE_THIRDPERSON // is this even needed (client does it too)?
+	m_PlayerAnimState->Update( EyeAngles()[YAW], EyeAngles()[PITCH] );
+
+	TrackFootSplashes( m_iLeftFootAttachment, m_bLeftFootInWater, m_vLeftFootOrigin );
+	TrackFootSplashes( m_iRightFootAttachment, m_bRightFootInWater, m_vRightFootOrigin );
+#endif // HOE_THIRDPERSON
 }
 
 void CHL2_Player::StartAdmireGlovesAnimation( void )
@@ -978,6 +1043,25 @@ void CHL2_Player::Activate( void )
 #endif
 
 	GetPlayerProxy();
+
+#ifdef HOE_THIRDPERSON
+	UpdateWaterState();
+
+	m_iLeftFootAttachment = LookupAttachment( "left_foot" );
+	m_iRightFootAttachment = LookupAttachment( "right_foot" );
+
+#define INVALID_ATTACHMENT 0
+	if ( m_iLeftFootAttachment != INVALID_ATTACHMENT && GetWaterLevel() > 0 )
+	{
+		GetAttachment( m_iLeftFootAttachment, m_vLeftFootOrigin );
+		m_bLeftFootInWater = ( UTIL_PointContents( m_vLeftFootOrigin ) & MASK_WATER ) ? true : false;
+	}
+	if ( m_iRightFootAttachment != INVALID_ATTACHMENT && GetWaterLevel() > 0 )
+	{
+		GetAttachment( m_iRightFootAttachment, m_vRightFootOrigin );
+		m_bRightFootInWater = ( UTIL_PointContents( m_vRightFootOrigin ) & MASK_WATER ) ? true : false;
+	}
+#endif
 }
 
 //------------------------------------------------------------------------------
@@ -1023,6 +1107,9 @@ bool CHL2_Player::HandleInteraction(int interactionType, void *data, CBaseCombat
 	{
 		m_afPhysicsFlags &= ~PFLAG_ONBARNACLE;
 		SetMoveType( MOVETYPE_WALK );
+#ifdef HOE_THIRDPERSON
+		DoAnimationEvent( PLAYERANIMEVENT_BARNACLE_RELEASE );
+#endif
 		return true;
 	}
 	else if (interactionType ==	g_interactionBarnacleVictimGrab)
@@ -1041,8 +1128,18 @@ bool CHL2_Player::HandleInteraction(int interactionType, void *data, CBaseCombat
 
 		m_afPhysicsFlags |= PFLAG_ONBARNACLE;
 		ClearUseEntity();
+#ifdef HOE_THIRDPERSON
+		DoAnimationEvent( PLAYERANIMEVENT_BARNACLE_GRAB );
+#endif
 		return true;
 	}
+#ifdef HOE_DLL
+	else if ( interactionType == g_interactionBarnacleVictimBite )
+	{
+		TakeDamage( CTakeDamageInfo( sourceEnt, sourceEnt, GetHealth(), DMG_CRUSH | DMG_SLASH | DMG_ALWAYSGIB ) );
+		return true;
+	}
+#endif
 	return false;
 }
 
@@ -1111,7 +1208,11 @@ void CHL2_Player::Spawn(void)
 
 #ifndef HL2MP
 #ifndef PORTAL
+#ifdef HOE_DLL
+	SetModel( "models/playerZ.mdl" );
+#else
 	SetModel( "models/player.mdl" );
+#endif
 #endif
 #endif
 
@@ -1142,6 +1243,11 @@ void CHL2_Player::Spawn(void)
 	GetPlayerProxy();
 
 	SetFlashlightPowerDrainScale( 1.0f );
+
+#ifdef HOE_THIRDPERSON
+	//Tony; do the spawn animevent
+	DoAnimationEvent( PLAYERANIMEVENT_SPAWN );
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1215,8 +1321,19 @@ void CHL2_Player::StartSprinting( void )
 	filter.UsePredictionRules();
 	EmitSound( filter, entindex(), "HL2Player.SprintStart" );
 
+#ifdef HOE_IRONSIGHTS
+	// Have to do this before setting m_fIsSprinting
+	if ( GetActiveWeapon() && GetActiveWeapon()->IsIronSightsActive() )
+		GetActiveWeapon()->ToggleIronSights();
+#endif // HOE_IRONSIGHTS
+
 	SetMaxSpeed( HL2_SPRINT_SPEED );
 	m_fIsSprinting = true;
+
+#ifdef HOE_DLL
+	if ( GetActiveWeapon() )
+		GetActiveWeapon()->StartSprinting();
+#endif // HOE_DLL
 }
 
 
@@ -1245,6 +1362,11 @@ void CHL2_Player::StopSprinting( void )
 		m_bIsAutoSprinting = false;
 		m_fAutoSprintMinTime = 0.0f;
 	}
+
+#ifdef HOE_DLL
+	if ( GetActiveWeapon() )
+		GetActiveWeapon()->StopSprinting();
+#endif // HOE_DLL
 }
 
 
@@ -1381,6 +1503,9 @@ void CHL2_Player::InitVCollision( const Vector &vecAbsOrigin, const Vector &vecA
 
 CHL2_Player::~CHL2_Player( void )
 {
+#ifdef HOE_THIRDPERSON
+	m_PlayerAnimState->Release();
+#endif // HOE_THIRDPERSON
 }
 
 //-----------------------------------------------------------------------------
@@ -1521,15 +1646,137 @@ void CHL2_Player::CommanderUpdate()
 {
 	CAI_BaseNPC *pCommandRepresentative = GetSquadCommandRepresentative();
 	bool bFollowMode = false;
+
+#ifdef HOE_DLL
+	const float MEMBER_TRANSITION_DELAY = 0.6f;
+
+	// Clean up info for members that have finished leaving or dying
+	for ( int i = 0; i < m_HL2Local.m_SquadMembers.Count(); i++ )
+	{
+		CPlayerSquadInfo &info = m_HL2Local.m_SquadMembers[i];
+			
+		// Finished dying or leaving?
+		if ( info.flags & (CPlayerSquadInfo::PSI_DIED | CPlayerSquadInfo::PSI_LEAVE) &&
+			info.m_flTime + info.m_flDuration < gpGlobals->curtime )
+		{
+			m_HL2Local.m_SquadMembers.Remove( i );
+			NetworkStateChanged();
+			i--;
+			continue;
+		}
+
+		// Is this member dead?
+		if ( info.m_hMember == NULL || !info.m_hMember->IsAlive() )
+		{
+			// Did the member just die?
+			if ( (info.flags & CPlayerSquadInfo::PSI_DIED) == 0 )
+			{
+				info.m_hMember = NULL;
+				info.health = 0;
+				info.m_flTime = gpGlobals->curtime;
+				info.m_flDuration = MEMBER_TRANSITION_DELAY * 2.0f;
+				info.flags |= CPlayerSquadInfo::PSI_DIED;
+				info.flags &= ~(CPlayerSquadInfo::PSI_JOIN | CPlayerSquadInfo::PSI_LEAVE);
+			}
+			else
+				info.frac = ((gpGlobals->curtime - info.m_flTime) / info.m_flDuration) * 100;
+			continue;
+		}
+
+		// Is this member not in our squad any more?
+		if ( !m_pPlayerAISquad || !m_pPlayerAISquad->SquadIsMember( info.m_hMember ) )
+		{
+			if ( (info.flags & CPlayerSquadInfo::PSI_LEAVE) == 0 )
+			{
+				info.m_flTime = gpGlobals->curtime;
+				info.m_flDuration = MEMBER_TRANSITION_DELAY;
+				info.flags |= CPlayerSquadInfo::PSI_LEAVE;
+				info.flags &= ~(CPlayerSquadInfo::PSI_JOIN | CPlayerSquadInfo::PSI_DIED);
+			}
+			else
+				info.frac = ((gpGlobals->curtime - info.m_flTime) / info.m_flDuration) * 100;
+			continue;
+		}
+	}
+#endif // HOE_DLL
+
 	if ( pCommandRepresentative )
 	{
 		bFollowMode = ( pCommandRepresentative->GetCommandGoal() == vec3_invalid );
 
 		// set the variables for network transmission (to show on the hud)
+#ifdef HOE_DLL
+		AISquadIter_t iter;
+		for ( CAI_BaseNPC *pAllyNpc = m_pPlayerAISquad->GetFirstMember(&iter); pAllyNpc; pAllyNpc = m_pPlayerAISquad->GetNextMember(&iter) )
+		{
+			int index = -1;
+			for ( int i = 0; i < m_HL2Local.m_SquadMembers.Count(); i++ )
+			{
+				if ( m_HL2Local.m_SquadMembers[i].m_hMember == pAllyNpc )
+				{
+					index = i;
+					break;
+				}
+			}
+
+			if ( pAllyNpc->IsCommandable() )
+			{
+				// Update an existing member
+				if ( index != -1 )
+				{
+					CPlayerSquadInfo &info = m_HL2Local.m_SquadMembers[index];
+					info.health = clamp( pAllyNpc->GetHealth() / (float)pAllyNpc->GetMaxHealth(), 0, 1.0 ) * 100;
+
+					// Update following/stationed
+					if ( bFollowMode )
+						info.flags |= CPlayerSquadInfo::PSI_FOLLOW;
+					else
+						info.flags &= ~CPlayerSquadInfo::PSI_FOLLOW;
+
+					// Check for finished joining
+					if ( info.flags & CPlayerSquadInfo::PSI_JOIN )
+					{
+						if (info.m_flTime + info.m_flDuration < gpGlobals->curtime )
+							info.flags &= ~CPlayerSquadInfo::PSI_JOIN;
+						else
+							info.frac = ((gpGlobals->curtime - info.m_flTime) / info.m_flDuration) * 100;
+					}
+
+					if ( pAllyNpc == m_hUseableEntity )
+						info.flags |= CPlayerSquadInfo::PSI_USEABLE;
+					else
+						info.flags &= ~CPlayerSquadInfo::PSI_USEABLE;
+				}
+
+				// Add a new member
+				else
+				{
+					index = m_HL2Local.m_SquadMembers.AddToTail();
+					CPlayerSquadInfo &info = m_HL2Local.m_SquadMembers[index];
+					info.Init( this );
+					info.m_hMember = pAllyNpc;
+					info.health = clamp( pAllyNpc->GetHealth() / (float)pAllyNpc->GetMaxHealth(), 0, 1.0 ) * 100;
+					if ( bFollowMode )
+						info.flags |= CPlayerSquadInfo::PSI_FOLLOW;
+					if ( pAllyNpc->IsMedic() )
+						info.flags |= CPlayerSquadInfo::PSI_MEDIC;
+
+					info.flags |= CPlayerSquadInfo::PSI_JOIN;
+					info.m_flTime = gpGlobals->curtime;
+					info.m_flDuration = MEMBER_TRANSITION_DELAY;
+
+					if ( pAllyNpc == m_hUseableEntity )
+						info.flags |= CPlayerSquadInfo::PSI_USEABLE;
+					else
+						info.flags &= ~CPlayerSquadInfo::PSI_USEABLE;
+				}
+			}
+		}
+#else // HOE_DLL
 		m_HL2Local.m_iSquadMemberCount = GetNumSquadCommandables();
 		m_HL2Local.m_iSquadMedicCount = GetNumSquadCommandableMedics();
 		m_HL2Local.m_fSquadInFollowMode = bFollowMode;
-
+#endif // HOE_DLL
 		// debugging code for displaying extra squad indicators
 		/*
 		char *pszMoving = "";
@@ -1553,9 +1800,12 @@ void CHL2_Player::CommanderUpdate()
 	}
 	else
 	{
+#ifdef HOE_DLL
+#else // HOE_DLL
 		m_HL2Local.m_iSquadMemberCount = 0;
 		m_HL2Local.m_iSquadMedicCount = 0;
 		m_HL2Local.m_fSquadInFollowMode = true;
+#endif // HOE_DLL
 	}
 
 	if ( m_QueuedCommand != CC_NONE && ( m_QueuedCommand == CC_FOLLOW || gpGlobals->realtime - m_RealTimeLastSquadCommand >= player_squad_double_tap_time.GetFloat() ) )
@@ -2179,6 +2429,13 @@ bool CHL2_Player::PassesDamageFilter( const CTakeDamageInfo &info )
 		return false;
 	}
 
+#ifdef HOE_DLL
+	// Hack - Stop the player taking damage in the truck unless they are leaning out the window.
+	// Starting with 2013 this became a problem, the player wasn't hurt in previous SDK versions (why???).
+	if ( GetVehicle() && !GetVehicle()->IsPassengerUsingStandardWeapons( VEHICLE_ROLE_DRIVER ) )
+		return false;
+#endif
+
 	return BaseClass::PassesDamageFilter( info );
 }
 
@@ -2427,12 +2684,14 @@ bool CHL2_Player::ShouldShootMissTarget( CBaseCombatCharacter *pAttacker )
 //-----------------------------------------------------------------------------
 void CHL2_Player::CombineBallSocketed( CPropCombineBall *pCombineBall )
 {
+#ifndef HOE_DLL
 #ifdef HL2_EPISODIC
 	CNPC_Alyx *pAlyx = CNPC_Alyx::GetAlyx();
 	if ( pAlyx )
 	{
 		pAlyx->CombineBallSocketed( pCombineBall->NumBounces() );
 	}
+#endif
 #endif
 }
 
@@ -2455,6 +2714,18 @@ void CHL2_Player::Event_KilledOther( CBaseEntity *pVictim, const CTakeDamageInfo
 	}
 
 #endif
+
+#ifdef HOE_DLL
+	// Create a bullseye to attach to the victim's ragdoll unless the
+	// victim is about to become chunks.
+	if ( !pVictim->MyCombatCharacterPointer() ||
+		!pVictim->MyCombatCharacterPointer()->ShouldGib( info ) )
+	{
+		// Create a CNPC_Bullseye so humans can shoot the ragdoll for a while.
+		extern void HOEHumanNPCKilled( CBaseEntity *pVictim );
+		HOEHumanNPCKilled( pVictim );
+	}
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -2848,11 +3119,15 @@ void CHL2_Player::PlayerUse ( void )
 
 		if ( m_afButtonPressed & IN_USE )
 		{
+#ifdef HOE_DLL
+			pUseEntity->EmitPlayerUseSound();
+#else
 			// Robin: Don't play sounds for NPCs, because NPCs will allow respond with speech.
 			if ( !pUseEntity->MyNPCPointer() )
 			{
 				EmitSound( "HL2Player.Use" );
 			}
+#endif
 		}
 
 		if ( ( (m_nButtons & IN_USE) && (caps & FCAP_CONTINUOUS_USE) ) ||
@@ -3697,6 +3972,94 @@ void CHL2_Player::ModifyOrAppendPlayerCriteria( AI_CriteriaSet& set )
 	}
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CHL2_Player::CheckUseableEntity( void )
+{
+	CBaseEntity *pUseableEntity;
+	
+	// We can't +USE something if we're climbing a ladder or in a vehicle
+	if ( IsInAVehicle() || ( GetMoveType() == MOVETYPE_LADDER ) )
+	{
+		pUseableEntity = NULL;
+	}
+	else
+	{
+		pUseableEntity = FindUseEntity();
+	}
+
+	if ( pUseableEntity == m_hUseableEntity )
+	{
+		// m_hUseableEntity will get set to NULL behind our backs if the entity is killed.
+		// If there was an entity but it got killed then clear the useable string display.
+		if ( m_iszUseableString != NULL_STRING && pUseableEntity == NULL )
+			SetUseableEntityString( NULL_STRING );
+		return;
+	}
+
+	if ( m_hUseableEntity != NULL )
+	{
+		if ( m_hUseableEntity->IsAlive() )
+			m_hUseableEntity->OnUseableLeave( this );
+		m_hUseableEntity = NULL;
+	}
+	if ( pUseableEntity != NULL )
+	{
+		if ( pUseableEntity->IsAlive() )
+		{
+			pUseableEntity->OnUseableEnter( this );
+			m_hUseableEntity = pUseableEntity;
+		}
+		else
+		{
+			if ( m_iszUseableString != NULL_STRING )
+				SetUseableEntityString( NULL_STRING );
+		}
+	}
+#if 0
+	const char *pString = pUseEntity ? pUseEntity->GetDebugName() : "";
+	DevMsg( "CHL2_Player::PreThink USE entity is '%s'\n", pString );
+
+	// See UTIL_ShowMessage and CMessage::InputShowMessage (ie, env_message)
+	CRecipientFilter filter;
+	filter.AddRecipient( this );
+	filter.MakeReliable();
+	UserMessageBegin( filter, "HudUseableText" );
+		WRITE_STRING( pString );
+	MessageEnd();
+#endif
+}
+
+//-----------------------------------------------------------------------------
+void CHL2_Player::SetUseableEntityString( string_t iszUseableString )
+{
+	if ( m_iszUseableString == iszUseableString )
+		return;
+
+	m_iszUseableString = iszUseableString;
+
+	// See UTIL_ShowMessage and CMessage::InputShowMessage (ie, env_message)
+	CRecipientFilter filter;
+	filter.AddRecipient( this );
+	filter.MakeReliable();
+	UserMessageBegin( filter, "HudUseableText" );
+		WRITE_STRING( (m_iszUseableString != NULL_STRING) ? STRING(m_iszUseableString) : "");
+	MessageEnd();
+}
+
+//-----------------------------------------------------------------------------
+void CHL2_Player::AddLetter( string_t letterName )
+{
+	int count;
+	for ( count = 0; m_HL2Local.m_iszLetterNames[count] != NULL_STRING; count++ )
+		{}
+	if ( count > sizeof(m_HL2Local.m_iszLetterNames)/sizeof(m_HL2Local.m_iszLetterNames[0]) )
+		DevWarning( "CHL2_Player::AddLetter: too many letters!\n" );
+	else
+		m_HL2Local.m_iszLetterNames.Set( count, letterName );
+}
+
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -3779,6 +4142,11 @@ BEGIN_DATADESC( CLogicPlayerProxy )
 	DEFINE_INPUTFUNC( FIELD_VOID,	"SetFlashlightNormalDrain",	InputSetFlashlightNormalDrain ),
 	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetPlayerHealth",	InputSetPlayerHealth ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"RequestAmmoState", InputRequestAmmoState ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_STRING,	"AddLetter", InputAddLetter ),
+	DEFINE_INPUTFUNC( FIELD_INTEGER, "HideHUD", InputHideHUD ),
+	DEFINE_INPUTFUNC( FIELD_INTEGER, "ShowHUD", InputShowHUD ),
+#endif
 	DEFINE_INPUTFUNC( FIELD_VOID,	"LowerWeapon", InputLowerWeapon ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"EnableCappedPhysicsDamage", InputEnableCappedPhysicsDamage ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"DisableCappedPhysicsDamage", InputDisableCappedPhysicsDamage ),
@@ -3928,3 +4296,215 @@ void CLogicPlayerProxy::InputSuppressCrosshair( inputdata_t &inputdata )
 	pPlayer->SuppressCrosshair( true );
 }
 #endif // PORTAL
+
+#ifdef HOE_DLL
+void CLogicPlayerProxy::InputAddLetter( inputdata_t &inputdata ) // NOT USED
+{
+	if ( m_hPlayer == NULL )
+		return;
+
+	CHL2_Player *pPlayer = dynamic_cast<CHL2_Player*>(m_hPlayer.Get());
+
+	if ( pPlayer )
+	{
+		pPlayer->AddLetter( inputdata.value.StringID() );
+	}
+}
+void CLogicPlayerProxy::InputHideHUD( inputdata_t &inputdata )
+{
+	if ( m_hPlayer == NULL )
+		return;
+
+	CBasePlayer *pPlayer = dynamic_cast<CBasePlayer*>(m_hPlayer.Get());
+
+	if ( pPlayer )
+	{
+		pPlayer->m_Local.m_iHideHUD |= inputdata.value.Int();
+	}
+}
+void CLogicPlayerProxy::InputShowHUD( inputdata_t &inputdata )
+{
+	if ( m_hPlayer == NULL )
+		return;
+
+	CBasePlayer *pPlayer = dynamic_cast<CBasePlayer*>(m_hPlayer.Get());
+
+	if ( pPlayer )
+	{
+		pPlayer->m_Local.m_iHideHUD &= ~inputdata.value.Int();
+	}
+}
+#endif /* HOE_DLL */
+
+#ifdef HOE_THIRDPERSON
+
+// -------------------------------------------------------------------------------- //
+// Player animation event. Sent to the client when a player fires, jumps, reloads, etc..
+// -------------------------------------------------------------------------------- //
+
+class CTEPlayerAnimEvent : public CBaseTempEntity
+{
+public:
+	DECLARE_CLASS( CTEPlayerAnimEvent, CBaseTempEntity );
+	DECLARE_SERVERCLASS();
+
+					CTEPlayerAnimEvent( const char *name ) : CBaseTempEntity( name )
+					{
+					}
+
+	CNetworkHandle( CBasePlayer, m_hPlayer );
+	CNetworkVar( int, m_iEvent );
+	CNetworkVar( int, m_nData );
+};
+
+IMPLEMENT_SERVERCLASS_ST_NOBASE( CTEPlayerAnimEvent, DT_TEPlayerAnimEvent )
+	SendPropEHandle( SENDINFO( m_hPlayer ) ),
+	SendPropInt( SENDINFO( m_iEvent ), Q_log2( PLAYERANIMEVENT_COUNT ) + 1, SPROP_UNSIGNED ),
+	SendPropInt( SENDINFO( m_nData ), 32 )
+END_SEND_TABLE()
+
+static CTEPlayerAnimEvent g_TEPlayerAnimEvent( "PlayerAnimEvent" );
+
+void TE_PlayerAnimEvent( CBasePlayer *pPlayer, PlayerAnimEvent_t event, int nData )
+{
+	CPVSFilter filter( (const Vector&)pPlayer->EyePosition() );
+
+	//Tony; use prediction rules.
+	filter.UsePredictionRules();
+	
+	g_TEPlayerAnimEvent.m_hPlayer = pPlayer;
+	g_TEPlayerAnimEvent.m_iEvent = event;
+	g_TEPlayerAnimEvent.m_nData = nData;
+	g_TEPlayerAnimEvent.Create( filter, 0 );
+}
+
+void CHL2_Player::DoAnimationEvent( PlayerAnimEvent_t event, int nData )
+{
+	m_PlayerAnimState->DoAnimationEvent( event, nData );
+	TE_PlayerAnimEvent( this, event, nData );	// Send to any clients who can see this guy.
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Override setup bones so that is uses the render angles from
+//			the HL2MP animation state to setup the hitboxes.
+//-----------------------------------------------------------------------------
+void CHL2_Player::SetupBones( matrix3x4_t *pBoneToWorld, int boneMask )
+{
+	VPROF_BUDGET( "CHL2MP_Player::SetupBones", VPROF_BUDGETGROUP_SERVER_ANIM );
+
+	// Set the mdl cache semaphore.
+	MDLCACHE_CRITICAL_SECTION();
+
+	// Get the studio header.
+	Assert( GetModelPtr() );
+	CStudioHdr *pStudioHdr = GetModelPtr( );
+
+	Vector pos[MAXSTUDIOBONES];
+	Quaternion q[MAXSTUDIOBONES];
+
+	// Adjust hit boxes based on IK driven offset.
+	Vector adjOrigin = GetAbsOrigin() + Vector( 0, 0, m_flEstIkOffset );
+
+	// FIXME: pass this into Studio_BuildMatrices to skip transforms
+	CBoneBitList boneComputed;
+	if ( m_pIk )
+	{
+		m_iIKCounter++;
+		m_pIk->Init( pStudioHdr, GetAbsAngles(), adjOrigin, gpGlobals->curtime, m_iIKCounter, boneMask );
+		GetSkeleton( pStudioHdr, pos, q, boneMask );
+
+		m_pIk->UpdateTargets( pos, q, pBoneToWorld, boneComputed );
+		CalculateIKLocks( gpGlobals->curtime );
+		m_pIk->SolveDependencies( pos, q, pBoneToWorld, boneComputed );
+	}
+	else
+	{
+		GetSkeleton( pStudioHdr, pos, q, boneMask );
+	}
+
+	CBaseAnimating *pParent = dynamic_cast< CBaseAnimating* >( GetMoveParent() );
+	if ( pParent )
+	{
+		// We're doing bone merging, so do special stuff here.
+		CBoneCache *pParentCache = pParent->GetBoneCache();
+		if ( pParentCache )
+		{
+			BuildMatricesWithBoneMerge( 
+				pStudioHdr, 
+				m_PlayerAnimState->GetRenderAngles(),
+				adjOrigin, 
+				pos, 
+				q, 
+				pBoneToWorld, 
+				pParent, 
+				pParentCache );
+
+			return;
+		}
+	}
+
+	Studio_BuildMatrices( 
+		pStudioHdr, 
+		m_PlayerAnimState->GetRenderAngles(),
+		adjOrigin, 
+		pos, 
+		q, 
+		-1,
+		GetModelScale(), // Scaling
+		pBoneToWorld,
+		boneMask );
+}
+
+//-----------------------------------------------------------------------------
+void CHL2_Player::SetModel( const char *szModelName )
+{
+	BaseClass::SetModel( szModelName );
+
+	m_iLeftFootAttachment = LookupAttachment( "left_foot" );
+	m_iRightFootAttachment = LookupAttachment( "right_foot" );
+}
+
+//-----------------------------------------------------------------------------
+void CHL2_Player::TrackFootSplashes( int iAttachment, bool &bPrevInWater, Vector &prevOrigin )
+{
+	if ( iAttachment == INVALID_ATTACHMENT )
+		return;
+
+	Vector footOrigin;
+	GetAttachment( iAttachment, footOrigin );
+
+	bool bInWater = GetWaterLevel() > WL_Feet;
+	if ( GetWaterLevel() == WL_Feet )
+	{
+#if 1
+		// Compute the point to check for water state
+		// see CBaseEntity::UpdateWaterState()
+		Vector point;
+		CollisionProp()->NormalizedToWorldSpace( Vector( 0.5f, 0.5f, 0.0f ), &point );
+
+		float flWaterZ = UTIL_FindWaterSurface( point, point.z, point.z + 64.0 );
+		bInWater = ( footOrigin.z < flWaterZ ) ? true : false;
+#else
+		bInWater = ( UTIL_PointContents( footOrigin ) & CONTENTS_WATER ) ? true : false;
+#endif
+	}
+	if ( bInWater && !bPrevInWater )
+	{
+		trace_t waterTrace;
+		UTIL_TraceLine( prevOrigin, footOrigin, CONTENTS_WATER, NULL, &waterTrace );
+
+		CEffectData	data;
+		data.m_vOrigin = waterTrace.endpos;
+		data.m_vNormal = waterTrace.plane.normal;
+		data.m_flScale = 3;
+		if ( waterTrace.contents & CONTENTS_SLIME )
+		{
+			data.m_fFlags |= FX_WATER_IN_SLIME;
+		}
+		DispatchEffect( "footstepsplash", data ); // plays a sound too!
+	}
+
+	bPrevInWater = bInWater;
+	prevOrigin = footOrigin;
+}
+#endif // HOE_THIRDPERSON

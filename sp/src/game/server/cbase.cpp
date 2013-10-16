@@ -272,7 +272,11 @@ void CBaseEntityOutput::FireOutput(variant_t Value, CBaseEntity *pActivator, CBa
 			//
 			variant_t ValueOverride;
 			ValueOverride.SetString( ev->m_iParameter );
+#ifdef HOE_DLL // BUG
+			g_EventQueue.AddEvent( STRING(ev->m_iTarget), STRING(ev->m_iTargetInput), ValueOverride, ev->m_flDelay + fDelay, pActivator, pCaller, ev->m_iIDStamp );
+#else
 			g_EventQueue.AddEvent( STRING(ev->m_iTarget), STRING(ev->m_iTargetInput), ValueOverride, ev->m_flDelay, pActivator, pCaller, ev->m_iIDStamp );
+#endif
 		}
 
 		if ( ev->m_flDelay )

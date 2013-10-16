@@ -62,7 +62,34 @@ END_DATADESC()
 // These are the new entry points to entities. 
 LINK_ENTITY_TO_CLASS(info_player_deathmatch,CBaseDMStart);
 LINK_ENTITY_TO_CLASS(info_player_start,CPointEntity);
+#ifdef HOE_DLL
+class CInfoLandmark : public CPointEntity
+{
+public:
+	DECLARE_CLASS( CInfoLandmark, CPointEntity );
+	DECLARE_DATADESC();
+
+	string_t m_TeleportPlayerTo;
+};
+LINK_ENTITY_TO_CLASS( info_landmark, CInfoLandmark );
+BEGIN_DATADESC( CInfoLandmark )
+	DEFINE_KEYFIELD( m_TeleportPlayerTo, FIELD_STRING, "playerteleport" ),
+END_DATADESC()
+void LandmarkTeleportPlayer( CBasePlayer *pPlayer, CBaseEntity *pEnt )
+{
+	CInfoLandmark *pLandmark = dynamic_cast< CInfoLandmark *>(pEnt);
+	if ( pLandmark && pLandmark->m_TeleportPlayerTo != NULL_STRING )
+	{
+		pEnt = gEntList.FindEntityByName( NULL, STRING(pLandmark->m_TeleportPlayerTo) );
+		if ( pEnt )
+		{
+			pPlayer->Teleport( &pEnt->GetAbsOrigin(), &pEnt->GetAbsAngles(), &vec3_origin );
+		}
+	}
+}
+#else
 LINK_ENTITY_TO_CLASS(info_landmark,CPointEntity);
+#endif
 
 bool CBaseDMStart::IsTriggered( CBaseEntity *pEntity )
 {

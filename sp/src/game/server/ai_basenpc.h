@@ -61,8 +61,12 @@ class CVarBitVec;
 class CAI_ScriptedSequence;
 class CSceneEntity;
 class CBaseGrenade;
+#ifdef HOE_DLL
+class IDoor;
+#else
 class CBaseDoor;
 class CBasePropDoor;
+#endif
 struct AI_Waypoint_t;
 class AI_Response;
 class CBaseFilter;
@@ -1340,6 +1344,22 @@ public:
 												AIMoveResult_t *pResult );
 
 	// Translations of the above into some useful game terms
+
+
+#ifdef HOE_DLL
+	virtual bool		OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, 
+										 IDoor *pDoor,
+										 float distClear, 
+										 AIMoveResult_t *pResult );
+
+	virtual bool 		OnUpcomingDoor( AILocalMoveGoal_t *pMoveGoal,
+ 											IDoor *pDoor,
+											float distClear,
+											AIMoveResult_t *pResult );
+
+	void	OpenDoorBegin( IDoor *pDoor );
+	void	OpenDoorNow( IDoor *pDoor );
+#else
 	virtual bool		OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, 
 										 CBaseDoor *pDoor,
 										 float distClear, 
@@ -1352,6 +1372,7 @@ public:
 
 	void	OpenPropDoorBegin( CBasePropDoor *pDoor );
 	void	OpenPropDoorNow( CBasePropDoor *pDoor );
+#endif
 
 	//---------------------------------
 	
@@ -1363,9 +1384,15 @@ public:
 	//
 	// Stuff for opening doors.
 	//	
+#ifdef HOE_DLL
+	void OnDoorFullyOpen(IDoor *pDoor);
+	void OnDoorBlocked(IDoor *pDoor);
+	CHandle<CBaseEntity> m_hOpeningDoor;	// The door that we are in the midst of opening for navigation.
+#else
 	void OnDoorFullyOpen(CBasePropDoor *pDoor);
 	void OnDoorBlocked(CBasePropDoor *pDoor);
 	CHandle<CBasePropDoor> m_hOpeningDoor;	// The CBasePropDoor that we are in the midst of opening for navigation.
+#endif
 
 protected:
 	// BRJ 4/11
@@ -2111,6 +2138,10 @@ public:
 	CNetworkVar( int,   m_iSpeedModRadius );
 	CNetworkVar( int,   m_iSpeedModSpeed );
 	CNetworkVar( float, m_flTimePingEffect );			// Display the pinged effect until this time
+
+#ifdef HOE_DLL
+	CNetworkHandle( CBaseEntity, m_hDeathSound );
+#endif
 
 	void				InputActivateSpeedModifier( inputdata_t &inputdata ) { m_bSpeedModActive = true; }
 	void				InputDisableSpeedModifier( inputdata_t &inputdata ) { m_bSpeedModActive = false; }

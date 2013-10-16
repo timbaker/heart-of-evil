@@ -1172,6 +1172,9 @@ BEGIN_DATADESC( CFuncTrackTrain )
 	DEFINE_KEYFIELD( m_height, FIELD_FLOAT, "height" ),
 	DEFINE_KEYFIELD( m_maxSpeed, FIELD_FLOAT, "startspeed" ),
 	DEFINE_KEYFIELD( m_flBank, FIELD_FLOAT, "bank" ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_flBankSpeed, FIELD_FLOAT, "bankspeed" ),
+#endif
 	DEFINE_KEYFIELD( m_flBlockDamage, FIELD_FLOAT, "dmg" ),
 	DEFINE_KEYFIELD( m_iszSoundMove, FIELD_SOUNDNAME, "MoveSound" ),
 	DEFINE_KEYFIELD( m_iszSoundMovePing, FIELD_SOUNDNAME, "MovePingSound" ),
@@ -1184,6 +1187,9 @@ BEGIN_DATADESC( CFuncTrackTrain )
 	DEFINE_FIELD( m_flNextMoveSoundTime, FIELD_TIME ),
 	DEFINE_KEYFIELD( m_eVelocityType, FIELD_INTEGER, "velocitytype" ),
 	DEFINE_KEYFIELD( m_eOrientationType, FIELD_INTEGER, "orientationtype" ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_eBankType, FIELD_INTEGER, "banktype" ),
+#endif
 
 	DEFINE_FIELD( m_ppath, FIELD_CLASSPTR ),
 	DEFINE_FIELD( m_dir, FIELD_FLOAT ),
@@ -1217,6 +1223,10 @@ BEGIN_DATADESC( CFuncTrackTrain )
 	DEFINE_INPUTFUNC( FIELD_FLOAT, "SetSpeedDirAccel", InputSetSpeedDirAccel ),
 	DEFINE_INPUTFUNC( FIELD_STRING, "TeleportToPathTrack", InputTeleportToPathTrack ),
 	DEFINE_INPUTFUNC( FIELD_FLOAT, "SetSpeedForwardModifier", InputSetSpeedForwardModifier ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_EHANDLE, "Teleport", InputTeleport ),
+	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetOrientationType", InputSetOrientationType ),
+#endif
 
 	// Outputs
 	DEFINE_OUTPUT( m_OnStart, "OnStart" ),
@@ -1302,6 +1312,9 @@ void CFuncTrackTrain::DrawDebugGeometryOverlays()
 		VectorTransform( Vector(m_length,0,0), EntityToWorldTransform(), out );
 		NDebugOverlay::Box( out, -Vector(4,4,4),Vector(4,4,4), 255, 0, 255, 0, 0);
 	}
+#ifdef HOE_TRACK_SPLINE
+	NDebugOverlay::Cross3D( GetAbsOrigin(), -Vector(16,16,16), Vector(16,16,16), 0, 255, 0, true, 0.0f );
+#endif
 }
 
 
@@ -1434,6 +1447,39 @@ void CFuncTrackTrain::InputToggle( inputdata_t &inputdata )
 		SetSpeed( 0 );
 	}
 }
+
+#ifdef HOE_DLL
+void CFuncTrackTrain::InputTeleport( inputdata_t &inputdata )
+{
+	CBaseEntity *pEnt = inputdata.value.Entity();
+	if ( pEnt == NULL )
+	{
+		DevWarning( "CFuncTrackTrain::InputTeleport: entity '%s' not found\n", inputdata.value.String() );
+		return;
+	}
+	CPathTrack *pTrack = dynamic_cast< CPathTrack * >(pEnt);
+	if ( pTrack == NULL )
+	{
+		DevWarning( "CFuncTrackTrain::InputTeleport: entity '%s' is not a path_track\n", inputdata.value.String() );
+		return;
+	}
+
+	if ( pTrack != m_ppath )
+	{
+		TeleportToPathTrack( pTrack );
+
+		m_ppath = pTrack;
+//		ArriveAtNode( pTrack );
+	}
+}
+
+void CFuncTrackTrain::InputSetOrientationType( inputdata_t &inputdata )
+{
+	int nOrientation = inputdata.value.Int();
+	if ( nOrientation >= 0 && nOrientation < TrainOrientation_Last )
+		m_eOrientationType = (TrainOrientationType_t)nOrientation;
+}
+#endif // HOE_DLL
 
 
 //-----------------------------------------------------------------------------
@@ -2053,6 +2099,14 @@ void CFuncTrackTrain::UpdateTrainOrientation( CPathTrack *pPrev, CPathTrack *pNe
 			UpdateOrientationBlend( GetTrainOrientationType(), pPrev, pNext, nextPos, flInterval );
 			break;
 		}
+
+#ifdef HOE_DLL
+		case TrainOrientation_TrackAngles:
+		{
+			UpdateOrientationTrackAngles( pPrev, pNext, nextPos, flInterval );
+			break;
+		}
+#endif // HOE_DLL
 	}
 }
 
@@ -2183,6 +2237,25 @@ void CFuncTrackTrain::UpdateOrientationBlend( TrainOrientationType_t eOrientatio
 	DoUpdateOrientation( GetLocalAngles(), angNew, flInterval );
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+// Purpose: Make the train face the angles of the
+//			trains with wheels that round corners a la HL1 trains.
+//-----------------------------------------------------------------------------
+void CFuncTrackTrain::UpdateOrientationTrackAngles( CPathTrack *pPrev, CPathTrack *pNext, const Vector &nextPos, float flInterval )
+{
+	if ( !m_ppath )
+		return;
+
+	QAngle angles = m_ppath->GetAbsAngles();
+	FixupAngles( angles );
+
+	QAngle curAngles = GetLocalAngles();
+	FixupAngles( curAngles );
+
+	DoUpdateOrientation( curAngles, angles, flInterval );
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Sets our angular velocity to approach the target angles over the given interval.
@@ -2220,8 +2293,52 @@ void CFuncTrackTrain::DoUpdateOrientation( const QAngle &curAngles, const QAngle
 
 	QAngle vecAngVel( vx / flInterval, vy / flInterval, GetLocalAngularVelocity().z );
 
+#ifdef HOE_DLL
+	// This is for aircraft using the path_track spline code.
+	// This banks according to the changes in motion rather than using the
+	// "bank" keyvalue.
+	if ( m_eBankType == TrainBank_DirectionOfMotion )
+	{
+		float flBank = abs(vecAngVel.y);
+		float flBankSpeed;
+		if ( vecAngVel.y > 5 )
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : flBank*2;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( -flBank, curAngles.z, flBankSpeed ), curAngles.z);
+		}
+		else if ( vecAngVel.y < -5 )
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : flBank*2;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( flBank, curAngles.z, flBankSpeed ), curAngles.z);
+		}
+		else
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : flBank*4;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( 0, curAngles.z, flBankSpeed ), curAngles.z) * 4;
+		}
+	}
+	else
+#endif // HOE_DLL
 	if ( m_flBank != 0 )
 	{
+#ifdef HOE_DLL
+		float flBankSpeed;
+		if ( vecAngVel.y < -5 )
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : m_flBank*2;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( -m_flBank, curAngles.z, flBankSpeed ), curAngles.z);
+		}
+		else if ( vecAngVel.y > 5 )
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : m_flBank*2;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( m_flBank, curAngles.z, flBankSpeed ), curAngles.z);
+		}
+		else
+		{
+			flBankSpeed = (m_flBankSpeed > 0) ? m_flBankSpeed : m_flBank*4;
+			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( 0, curAngles.z, flBankSpeed ), curAngles.z) * 4;
+		}
+#else // HOE_DLL
 		if ( vecAngVel.y < -5 )
 		{
 			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( -m_flBank, curAngles.z, m_flBank*2 ), curAngles.z);
@@ -2234,6 +2351,7 @@ void CFuncTrackTrain::DoUpdateOrientation( const QAngle &curAngles, const QAngle
 		{
 			vecAngVel.z = UTIL_AngleDistance( UTIL_ApproachAngle( 0, curAngles.z, m_flBank*4 ), curAngles.z) * 4;
 		}
+#endif // HOE_DLL
 	}
 	
 	SetLocalAngularVelocity( vecAngVel );
@@ -2266,7 +2384,12 @@ void CFuncTrackTrain::TeleportToPathTrack( CPathTrack *pTeleport )
 		}
 	}
 
+#ifdef HOE_DLL
+	nextPos.z += m_height;
+	Teleport( &nextPos, &nextAngles, NULL );
+#else
 	Teleport( &pTeleport->GetLocalOrigin(), &nextAngles, NULL );
+#endif
 	SetLocalAngularVelocity( vec3_angle );
 
 	variant_t emptyVariant;
@@ -2331,6 +2454,10 @@ void CFuncTrackTrain::Next( void )
 			NDebugOverlay::Line( pNextNext->GetAbsOrigin(), pNextNext->GetAbsOrigin() + Vector( 0,0,32), 0, 255, 0, true, 0.1 );
 			NDebugOverlay::Box( pNextNext->GetAbsOrigin(), Vector( -8, -8, -8 ), Vector( 8, 8, 8 ), 0, 255, 0, 0, 0.1 );
 		}
+
+#ifdef HOE_TRACK_SPLINE
+		NDebugOverlay::Cross3D( nextPos, -Vector(16,16,16), Vector(16,16,16), 255, 0, 0, true, 0.0f );
+#endif
 	}
 
 	nextPos.z += m_height;

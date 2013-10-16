@@ -1776,6 +1776,16 @@ void InitPose(
 				pos[i] = pbone->pos;
 				q[i] = pbone->quat;
 			}
+#ifdef HOE_DLL
+            else
+            {
+                // BUG ??? Crashing when an NPC enters a choreo vehicle
+                // CBaseAnimating::SetupBones() takes a boneMask arg which is not passed to other
+                // functions that are using q[] and pos[]
+                pos[i] = Vector();
+                q[i] = Quaternion();
+            }
+#endif
 		}
 	}
 	else
@@ -1788,6 +1798,16 @@ void InitPose(
 				pos[i] = pLinearBones->pos(i);
 				q[i] = pLinearBones->quat(i);
 			}
+#ifdef HOE_DLL
+            // BUG ??? Crashing when an NPC enters a choreo vehicle
+            // CBaseAnimating::SetupBones() takes a boneMask arg which is not passed to other
+            // functions that are using q[] and pos[]
+            else
+            {
+                pos[i] = Vector();
+                q[i] = Quaternion();
+            }
+#endif
 		}
 	}
 }

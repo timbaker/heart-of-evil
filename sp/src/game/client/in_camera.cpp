@@ -314,6 +314,57 @@ void CInput::CAM_Think( void )
 	idealAngles[ YAW ]   = cam_idealyaw.GetFloat();
 	idealAngles[ DIST ]  = cam_idealdist.GetFloat();
 
+//#undef HOE_THIRDPERSON
+#if defined(HOE_THIRDPERSON)
+	C_BasePlayer* pPlayer = C_BasePlayer::GetLocalPlayer();
+	if ( pPlayer )
+	{
+		float switchDelay = 0.2f;
+		Vector defaultOffset( 10, 2, 0 );
+		if ( pPlayer->m_flThirdPersonAimModeTime < gpGlobals->curtime &&
+			 pPlayer->m_flThirdPersonAimModeTime > gpGlobals->curtime - switchDelay ) // switching to/from aimmode
+		{
+			Vector goalAimModeOffset;
+			float dt = gpGlobals->curtime - pPlayer->m_flThirdPersonAimModeTime;
+			float frac = dt / switchDelay;
+			float dist = 100.0f;
+			if ( pPlayer->m_fThirdPersonAimMode )
+			{
+				dist = 100.0f - 60.0f * frac;
+			}
+			else
+			{
+				dist = 40.0f + 60.0f * frac;
+				frac = 1.0f - frac;
+			}
+
+			extern ConVar hoe_aimmode_offset_x, hoe_aimmode_offset_y;
+			goalAimModeOffset.x = defaultOffset.x + frac * (hoe_aimmode_offset_x.GetFloat() - defaultOffset.x);
+			goalAimModeOffset.y = defaultOffset.y + frac * (hoe_aimmode_offset_y.GetFloat() - defaultOffset.y);
+
+			m_vecCameraOffset2.x = goalAimModeOffset.x;
+			m_vecCameraOffset2.y = goalAimModeOffset.y;
+			idealAngles[ DIST ] = dist; //VectorMA( pSetup->origin, -(dist-mindist), camForward, pSetup->origin );
+
+			// Apply punch angle
+	//			VectorAdd( camAngles, pPlayer->GetPunchAngle(), camAngles );
+		}
+		else if ( pPlayer->m_fThirdPersonAimMode )
+		{
+			extern ConVar hoe_aimmode_offset_x, hoe_aimmode_offset_y;
+			m_vecCameraOffset2.x = hoe_aimmode_offset_x.GetFloat();
+			m_vecCameraOffset2.y = hoe_aimmode_offset_y.GetFloat();
+			idealAngles[ DIST ] = 40.0f; // VectorMA( pSetup->origin, -(40.0f-mindist), camForward, pSetup->origin );
+		}
+		else
+		{
+			m_vecCameraOffset2.x = defaultOffset.x;
+			m_vecCameraOffset2.y = defaultOffset.y;
+			idealAngles[ DIST ] = 100.0f; // VectorMA( pSetup->origin, -(100.0f-mindist), camForward, pSetup->origin );
+		}
+	}
+#endif
+
 	//
 	//movement of the camera with the mouse
 	//
@@ -534,11 +585,15 @@ void CInput::CAM_Think( void )
 		
 		if( camOffset[ PITCH ] - viewangles[ PITCH ] != cam_idealpitch.GetFloat() )
 			camOffset[ PITCH ] = MoveToward( camOffset[ PITCH ], cam_idealpitch.GetFloat() + viewangles[ PITCH ], lag );
-		
+
+#if defined(HOE_THIRDPERSON)
+		camOffset[ DIST ] = idealAngles[ DIST ];
+#else
 		if( abs( camOffset[ DIST ] - cam_idealdist.GetFloat() ) < 2.0 )
 			camOffset[ DIST ] = cam_idealdist.GetFloat();
 		else
 			camOffset[ DIST ] += ( cam_idealdist.GetFloat() - camOffset[ DIST ] ) / lag;
+#endif
 	}
 
 	// move the camera closer to the player if it hit something
@@ -880,6 +935,13 @@ int CInput::CAM_IsThirdPerson( void )
 {
 	return m_fCameraInThirdPerson;
 }
+
+#if 1/*def HOE_THIRDPERSON*/
+void CInput::CAM_GetCameraOffset2( Vector& ofs )
+{
+	VectorCopy( m_vecCameraOffset2, ofs );
+}
+#endif
 
 /*
 ==============================

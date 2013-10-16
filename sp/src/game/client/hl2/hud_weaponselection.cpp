@@ -21,10 +21,21 @@
 
 #include "vgui/ILocalize.h"
 
+#define HOE_HUD_MODELS
+#ifdef HOE_HUD_MODELS
+#include "view_shared.h"
+#include "view.h"
+#include "model_types.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
+#ifdef HOE_DLL
+ConVar hud_showemptyweaponslots( "hud_showemptyweaponslots", "0", FCVAR_ARCHIVE, "Shows slots for missing weapons when recieving weapons out of order" );
+#else
 ConVar hud_showemptyweaponslots( "hud_showemptyweaponslots", "1", FCVAR_ARCHIVE, "Shows slots for missing weapons when recieving weapons out of order" );
+#endif
 
 #define SELECTION_TIMEOUT_THRESHOLD		0.5f	// Seconds
 #define SELECTION_FADEOUT_TIME			0.75f
@@ -159,12 +170,19 @@ private:
 	CPanelAnimationVar( Color, m_SelectedBoxColor, "SelectedBoxColor", "SelectionSelectedBoxBg" );
 	CPanelAnimationVar( Color, m_SelectedFgColor, "SelectedFgColor", "FgColor" );
 	CPanelAnimationVar( Color, m_BrightBoxColor, "SelectedFgColor", "BgColor" );
+#ifdef HOE_DLL
+	CPanelAnimationVar( Color, m_BoxOutlineColor, "BoxOutlineColor", "SelectionBoxBg" );
+#endif // HOE_DLL
 
 	CPanelAnimationVar( float, m_flWeaponPickupGrowTime, "SelectionGrowTime", "0.1" );
 
 	CPanelAnimationVar( float, m_flTextScan, "TextScan", "1.0" );
 
 	bool m_bFadingOut;
+
+#ifdef HOE_HUD_MODELS
+	CHandle<C_BaseAnimating> m_hWeaponEnt;
+#endif
 
 	// fastswitch weapon display
 	struct WeaponBox_t
@@ -652,15 +670,27 @@ void CHudWeaponSelection::Paint()
 	case HUDTYPE_BUCKETS:
 		{
 			// bucket style
+#ifdef HOE_DLL
+			extern int g_iMaxWeaponSlot;
+			width = g_iMaxWeaponSlot * (m_flSmallBoxSize + m_flBoxGap) + largeBoxWide;
+#else // HOE_DLL
 			width = (MAX_WEAPON_SLOTS - 1) * (m_flSmallBoxSize + m_flBoxGap) + largeBoxWide;
+#endif // HOE_DLL
 			xpos  = (GetWide() - width) / 2;
+#ifdef HOE_DLL
+			ypos = m_flBoxGap / 2;
+#else // HOE_DLL
 			ypos  = 0;
-
+#endif // HOE_DLL
 			int iActiveSlot = (pSelectedWeapon ? pSelectedWeapon->GetSlot() : -1);
 
 			// draw the bucket set
 			// iterate over all the weapon slots
+#ifdef HOE_DLL
+			for ( int i = 0; i <= g_iMaxWeaponSlot; i++ )
+#else // HOE_DLL
 			for ( int i = 0; i < MAX_WEAPON_SLOTS; i++ )
+#endif // HOE_DLL
 			{
 				if ( i == iActiveSlot )
 				{
@@ -715,7 +745,11 @@ void CHudWeaponSelection::Paint()
 				}
 
 				// reset position
-				ypos = 0;
+#ifdef HOE_DLL
+				ypos  = m_flBoxGap / 2;
+#else // HOE_DLL
+				ypos  = 0;
+#endif // HOE_DLL
 				xpos += m_flBoxGap;
 			}
 		}
@@ -736,11 +770,112 @@ void CHudWeaponSelection::Paint()
 void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool bSelected, int xpos, int ypos, int boxWide, int boxTall, Color selectedColor, float alpha, int number )
 {
 	Color col = bSelected ? m_SelectedFgColor : GetFgColor();
-	
+
+#ifdef HOE_DLL
+	if ( bSelected )
+	{
+		xpos -= m_flBoxGap / 2;
+		ypos -= m_flBoxGap / 2;
+		boxWide += m_flBoxGap;
+		boxTall += m_flBoxGap;
+	}
+#endif // HOE_DLL
+
 	switch ( hud_fastswitch.GetInt() )
 	{
 	case HUDTYPE_BUCKETS:
 		{
+
+#ifdef HOE_HUD_MODELS
+			if ( !pWeapon->CanBeSelected() )
+			{
+				// unselectable weapon, display as such
+				selectedColor = m_EmptyBoxColor;
+			}
+
+			DrawBox( xpos, ypos, boxWide, boxTall, selectedColor, alpha, number );
+
+			MDLCACHE_CRITICAL_SECTION();
+			C_BaseAnimating *pWeaponEnt = m_hWeaponEnt.Get();
+			if ( pWeaponEnt == NULL )
+			{
+				pWeaponEnt = new C_BaseAnimating;
+				pWeaponEnt->InitializeAsClientEntity( pWeapon->GetWorldModel(), RENDER_GROUP_OPAQUE_ENTITY );
+				pWeaponEnt->DontRecordInTools();
+				pWeaponEnt->AddEffects( EF_NODRAW ); // don't let the renderer draw the model normally
+				m_hWeaponEnt = pWeaponEnt;
+			}
+			pWeaponEnt->SetModel( pWeapon->GetWeaponSelectionHUD_Model() );
+#if 0
+			if ( m_flAlphaOverride >= 255 )
+			{
+				pWeaponEnt->SetRenderMode( kRenderNormal );
+			}
+			else
+			{
+				pWeaponEnt->SetRenderMode( kRenderTransTexture );
+				pWeaponEnt->SetRenderColorA( m_flAlphaOverride );
+				pWeaponEnt->ComputeFxBlend();
+			}
+#endif
+			Vector origin = pWeapon->GetAbsOrigin();
+			pWeaponEnt->SetAbsOrigin( origin );
+			pWeaponEnt->SetAbsAngles( pWeapon->GetWeaponSelectionHUD_Angles() );
+
+			// Now draw it.
+			CViewSetup view;
+			// setup the views location, size and fov (amongst others)
+			view.x = xpos;
+			view.y = ypos;
+			view.width = boxWide;
+			view.height = boxTall;
+
+			view.m_bOrtho = false;
+			view.fov = 54;
+
+			view.origin = origin + pWeapon->GetWeaponSelectionHUD_Origin();
+
+			// make sure that we see all of the weapon model
+			Vector vMins, vMaxs;
+			pWeaponEnt->/*C_BaseAnimating::*/GetRenderBounds( vMins, vMaxs );
+			view.origin.z += ( vMins.z + vMaxs.z ) * 0.55f;
+
+			view.angles.Init();
+			view.zNear = VIEW_NEARZ;
+			view.zFar = 1000;
+
+			CMatRenderContextPtr pRenderContext( materials );
+			pRenderContext->SetLightingOrigin( vec3_origin );
+			pRenderContext->SetAmbientLight( 1.0, 1.0, 1.0 );
+
+			static Vector white[6] = 
+			{
+				Vector( 1.0, 1.0, 1.0 ),
+				Vector( 1.0, 1.0, 1.0 ),
+				Vector( 1.0, 1.0, 1.0 ),
+				Vector( 1.0, 1.0, 1.0 ),
+				Vector( 1.0, 1.0, 1.0 ),
+				Vector( 1.0, 1.0, 1.0 ),
+			};
+
+			g_pStudioRender->SetAmbientLightColors( white );
+			g_pStudioRender->SetLocalLights( 0, NULL );
+
+			// render it out to the new CViewSetup area
+			// it's possible that ViewSetup3D will be replaced in future code releases
+			Frustum dummyFrustum;
+			render->Push3DView( view, 0, NULL, dummyFrustum );
+			modelrender->SuppressEngineLighting( true );
+			float color[3] = { 1.0f, 1.0f, 1.0f };
+			render->SetColorModulation( color );
+			render->SetBlend( m_flAlphaOverride / 255.0f );
+			pWeaponEnt->DrawModel( STUDIO_RENDER );
+			modelrender->SuppressEngineLighting( false );
+			render->PopView( dummyFrustum );
+			
+			break;
+#endif // HOE_HUD_MODELS
+
 			// draw box for selected weapon
 			DrawBox( xpos, ypos, boxWide, boxTall, selectedColor, alpha, number );
 
@@ -769,6 +904,10 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 				{
 					// unselectable weapon, display as such
 					col = Color(255, 0, 0, col[3]);
+#ifdef HOE_DLLxxx // Enable this if not using TTF
+					// draw the inactive version
+					pWeapon->GetSpriteInactive()->DrawSelf( xpos + x_offs, ypos + y_offs, col );
+#endif
 				}
 				else if (bSelected)
 				{
@@ -778,7 +917,9 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 					// draw an active version over the top
 					pWeapon->GetSpriteActive()->DrawSelf( xpos + x_offs, ypos + y_offs, col );
 				}
-				
+#ifdef HOE_DLLxxx // Enable this if not using TTF
+				else
+#endif
 				// draw the inactive version
 				pWeapon->GetSpriteInactive()->DrawSelf( xpos + x_offs, ypos + y_offs, col );
 			}
@@ -887,6 +1028,40 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 		return;
 	}
 
+#ifdef HOE_DLL
+
+	bool bShowName = bSelected;
+
+	// draw text
+	col = m_TextColor;
+	const FileWeaponInfo_t &weaponInfo = pWeapon->GetWpnData();
+	const char *szPrintName = weaponInfo.szPrintName;
+
+	if ( !pWeapon->CanBeSelected() )
+	{
+		col = Color(255, 0, 0, min(col[3],128));
+		szPrintName = "#HOE_UnselectableWeapon";
+		bShowName = true;
+	}
+
+	if ( bShowName )
+	{
+		wchar_t text[128];
+		wchar_t *tempString = g_pVGuiLocalize->Find(szPrintName);
+
+		// setup our localized string
+		if ( tempString )
+		{
+			_snwprintf(text, sizeof(text)/sizeof(wchar_t) - 1, L"%s", tempString);
+			text[sizeof(text)/sizeof(wchar_t) - 1] = 0;
+		}
+		else
+		{
+			// string wasn't found by g_pVGuiLocalize->Find()
+			g_pVGuiLocalize->ConvertANSIToUnicode(szPrintName, text, sizeof(text));
+		}
+#else // HOE_DLL
+
 	// draw text
 	col = m_TextColor;
 	const FileWeaponInfo_t &weaponInfo = pWeapon->GetWpnData();
@@ -911,9 +1086,14 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 			// string wasn't found by g_pVGuiLocalize->Find()
 			g_pVGuiLocalize->ConvertANSIToUnicode(weaponInfo.szPrintName, text, sizeof(text));
 		}
+#endif // HOE_DLL
 
 		surface()->DrawSetTextColor( col );
 		surface()->DrawSetTextFont( m_hTextFont );
+
+#ifdef HOE_DLL
+		int nLines = 1;
+#endif // HOE_DLL
 
 		// count the position
 		int slen = 0, charCount = 0, maxslen = 0;
@@ -932,6 +1112,9 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 					{
 						firstslen = slen;
 					}
+#ifdef HOE_DLL
+					nLines += 1;
+#endif // HOE_DLL
 
 					slen = 0;
 				}
@@ -957,6 +1140,14 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 
 		int tx = xpos + ((m_flLargeBoxWide - firstslen) / 2);
 		int ty = ypos + (int)m_flTextYPos;
+#ifdef HOE_DLL
+		if ( bSelected )
+		{
+			tx = xpos + ((m_flLargeBoxWide + m_flBoxGap - firstslen) / 2);
+			ty += m_flBoxGap;
+		}
+		ty -= (nLines - 1) * surface()->GetFontTall(m_hTextFont);
+#endif // HOE_DLL
 		surface()->DrawSetTextPos( tx, ty );
 		// adjust the charCount by the scan amount
 		charCount *= m_flTextScan;
@@ -986,7 +1177,16 @@ void CHudWeaponSelection::DrawLargeWeaponBox( C_BaseCombatWeapon *pWeapon, bool 
 //-----------------------------------------------------------------------------
 void CHudWeaponSelection::DrawBox(int x, int y, int wide, int tall, Color color, float normalizedAlpha, int number)
 {
+#ifdef HOE_DLL
+	color[3] *= normalizedAlpha / 255.0f;
+	surface()->DrawSetColor( color );
+	surface()->DrawFilledRect( x, y, x + wide, y + tall );
+
+	surface()->DrawSetColor( m_BoxOutlineColor );
+	surface()->DrawOutlinedRect( x, y, x + wide, y + tall );
+#else // HOE_DLL
 	BaseClass::DrawBox( x, y, wide, tall, color, normalizedAlpha / 255.0f );
+#endif // HOE_DLL
 
 	// draw the number
 	if (number >= 0)

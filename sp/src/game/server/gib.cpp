@@ -103,13 +103,23 @@ void CGib::SpawnStickyGibs( CBaseEntity *pVictim, Vector vecOrigin, int cGibs )
 			pGib->SetBloodColor( pVictim->BloodColor() );
 		
 			pGib->AdjustVelocityBasedOnHealth( pVictim->m_iHealth, vecNewVelocity );
+#ifdef HOE_DLL
+			pGib->InitGibPhysics( vecNewVelocity );
+#else
 			pGib->SetAbsVelocity( vecNewVelocity );
-			
+#endif			
+#ifndef HOE_DLL
 			pGib->SetMoveType( MOVETYPE_FLYGRAVITY );
 			pGib->RemoveSolidFlags( FSOLID_NOT_SOLID );
 			pGib->SetCollisionBounds( vec3_origin, vec3_origin );
+#endif
 			pGib->SetTouch ( &CGib::StickyGibTouch );
+#ifdef HOE_DLL
+			pGib->SetThink( &CGib::DieThink );
+			pGib->SetNextThink( gpGlobals->curtime + pGib->m_lifeTime );
+#else
 			pGib->SetThink (NULL);
+#endif
 		}
 		pGib->LimitVelocity();
 	}
@@ -126,8 +136,12 @@ void CGib::SpawnHeadGib( CBaseEntity *pVictim )
 	}
 	else
 	{
+#ifdef HOE_DLL
+		pGib->Spawn( "models/gibs/hgibs_Skull1.mdl" );// throw one head
+#else
 		pGib->Spawn( "models/gibs/hgibs.mdl" );// throw one head
 		pGib->m_nBody = 0;
+#endif
 	}
 
 	if ( pVictim )
@@ -163,9 +177,23 @@ void CGib::SpawnHeadGib( CBaseEntity *pVictim )
 		// copy owner's blood color
 		pGib->SetBloodColor( pVictim->BloodColor() );
 		pGib->AdjustVelocityBasedOnHealth( pVictim->m_iHealth, vecNewVelocity );
+#ifdef HOE_DLL
+		pGib->InitGibPhysics( vecNewVelocity );
+#else
 		pGib->SetAbsVelocity( vecNewVelocity );
+#endif
 	}
+#ifdef HOE_DLL
+	else
+	{
+		pGib->InitGibPhysics( vec3_origin );
+	}
+#endif
 	pGib->LimitVelocity();
+#ifdef HOE_DLL
+	pGib->SetThink( &CGib::DieThink );
+	pGib->SetNextThink( gpGlobals->curtime + pGib->m_lifeTime );
+#endif
 }
 
 
@@ -197,6 +225,29 @@ void CGib::AdjustVelocityBasedOnHealth( int nHealth, Vector &vecVelocity )
 	}
 }
 
+#ifdef HOE_DLL
+//------------------------------------------------------------------------------
+void CGib::InitGibPhysics( Vector vecNewVelocity )
+{
+	// Attempt to be physical if we can
+	if ( VPhysicsInitNormal( SOLID_BBOX, 0, false ) )
+	{
+		IPhysicsObject *pObj = VPhysicsGetObject();
+
+		if ( pObj != NULL )
+		{
+			AngularImpulse angImpulse = RandomAngularImpulse( -500, 500 );
+			pObj->AddVelocity( &vecNewVelocity, &angImpulse );
+		}
+	}
+	else
+	{
+		SetSolid( SOLID_BBOX );
+		SetCollisionBounds( vec3_origin, vec3_origin );
+		SetAbsVelocity( vecNewVelocity );
+	}
+}
+#endif
 
 //------------------------------------------------------------------------------
 // Purpose : Initialize a gibs position and velocity
@@ -312,8 +363,13 @@ void CGib::SpawnRandomGibs( CBaseEntity *pVictim, int cGibs, GibType_e eGibType 
 			{
 			case GIB_HUMAN:
 				// human pieces
+#ifdef HOE_DLL
+				extern const char *HGibModelRandom( void );
+				pGib->Spawn( HGibModelRandom() );
+#else
 				pGib->Spawn( "models/gibs/hgibs.mdl" );
 				pGib->m_nBody = random->RandomInt(1,HUMAN_GIB_COUNT-1);// start at one to avoid throwing random amounts of skulls (0th gib)
+#endif
 				break;
 			case GIB_ALIEN:
 				// alien pieces
@@ -323,6 +379,10 @@ void CGib::SpawnRandomGibs( CBaseEntity *pVictim, int cGibs, GibType_e eGibType 
 			}
 		}
 		pGib->InitGib( pVictim, 300, 400);
+#ifdef HOE_DLL
+		pGib->SetThink( &CGib::DieThink );
+		pGib->SetNextThink( gpGlobals->curtime + pGib->m_lifeTime );
+#endif
 	}
 }
 
@@ -505,9 +565,41 @@ void CGib::BounceGibTouch ( CBaseEntity *pOther )
 	
 	IPhysicsObject *pPhysics = VPhysicsGetObject();
 
+#ifdef HOE_DLL
+	if ( pPhysics )
+	{
+		if (GetFlags() & FL_ONGROUND)
+		{
+		}
+		else
+		{
+			if ( g_Language.GetInt() != LANGUAGE_GERMAN && m_cBloodDecals > 0 && m_bloodColor != DONT_BLEED )
+			{
+				vecSpot = GetAbsOrigin() + Vector ( 0 , 0 , 8 );//move up a bit, and trace down.
+				UTIL_TraceLine ( vecSpot, vecSpot + Vector ( 0, 0, -24 ),  MASK_SOLID_BRUSHONLY, this, COLLISION_GROUP_NONE, &tr);
+
+				UTIL_BloodDecalTrace( &tr, m_bloodColor );
+
+				m_cBloodDecals--; 
+			}
+
+			if ( m_material != matNone && random->RandomInt(0,2) == 0 )
+			{
+				float volume;
+				float zvel = fabs(GetAbsVelocity().z);
+			
+				volume = 0.8f * min(1.0, ((float)zvel) / 450.0f);
+
+				CBreakable::MaterialSoundRandom( entindex(), (Materials)m_material, volume );
+			}
+		}
+		return;
+	}
+#else
 	if ( pPhysics )
 		 return;
-	
+#endif
+
 	//if ( random->RandomInt(0,1) )
 	//	return;// don't bleed everytime
 	if (GetFlags() & FL_ONGROUND)
@@ -567,7 +659,7 @@ void CGib::StickyGibTouch ( CBaseEntity *pOther )
 	UTIL_TraceLine ( GetAbsOrigin(), GetAbsOrigin() + GetAbsVelocity() * 32,  MASK_SOLID_BRUSHONLY, this, COLLISION_GROUP_NONE, &tr);
 
 	UTIL_BloodDecalTrace( &tr, m_bloodColor );
-
+#ifndef HOE_DLL
 	Vector vecForward = tr.plane.normal * -1;
 	QAngle angles;
 	VectorAngles( vecForward, angles );
@@ -575,6 +667,7 @@ void CGib::StickyGibTouch ( CBaseEntity *pOther )
 	SetAbsVelocity( vec3_origin ); 
 	SetLocalAngularVelocity( vec3_angle );
 	SetMoveType( MOVETYPE_NONE );
+#endif
 }
 
 //

@@ -530,18 +530,25 @@ void IN_ScoreDown( const CCommand &args )
 	KeyDown( &in_score, args[1] );
 	if ( gViewPortInterface )
 	{
+#ifdef HOE_DLL
+		gViewPortInterface->ShowPanel( PANEL_LETTERS, true );
+#else
 		gViewPortInterface->ShowPanel( PANEL_SCOREBOARD, true );
+#endif
 	}
 }
 
 void IN_ScoreUp( const CCommand &args )
 {
+#ifdef HOE_DLL
+#else
 	KeyUp( &in_score, args[1] );
 	if ( gViewPortInterface )
 	{
 		gViewPortInterface->ShowPanel( PANEL_SCOREBOARD, false );
 		GetClientVoiceMgr()->StopSquelchMode();
 	}
+#endif
 }
 
 

@@ -22,6 +22,9 @@ class C_BaseFlex;
 class CCloseCaptionItem;
 struct WorkUnitParams;
 class CAsyncCaption;
+#ifdef HOE_DLL
+struct ClosedCaptionInfo_t;
+#endif // HOE_DLL
 
 typedef CUtlSortVector< CaptionLookup_t, CCaptionLookupLess > CaptionDictionary_t;
 struct AsyncCaptionData_t;
@@ -102,15 +105,29 @@ public:
 
 	// Clear all CC data
 	void			Reset( void );
+#ifdef HOE_DLL
+	void MsgFunc_RescindClosedCaption(bf_read &msg);
+
+	void			Process( const wchar_t *stream, float duration, char const *tokenstream, const char *image, short id, const ClosedCaptionInfo_t *pInfo, bool fromplayer, bool direct = false );
+	
+	bool			ProcessCaption( char const *tokenname, const char *imagename, short id, float duration, bool fromplayer = false, bool direct = false );
+	void			ProcessCaptionDirect( char const *tokenname, const char *imagename, float duration, bool fromplayer = false );
+	void			ProcessSentenceCaptionStream( char const *tokenstream, const char *imagename, short id );
+#else // HOE_DLL
 	void			Process( const wchar_t *stream, float duration, char const *tokenstream, bool fromplayer, bool direct = false );
 	
 	bool			ProcessCaption( char const *tokenname, float duration, bool fromplayer = false, bool direct = false );
 	void			ProcessCaptionDirect( char const *tokenname, float duration, bool fromplayer = false );
 
 	void			ProcessSentenceCaptionStream( char const *tokenstream );
+#endif // HOE_DLL
 	void			PlayRandomCaption();
 
+#ifdef HOE_DLL
+	void				InitCaptionDictionary( char const *dbfile, bool bForce = false );
+#else // HOE_DLL
 	void				InitCaptionDictionary( char const *dbfile );
+#endif // HOE_DLL
 	void				OnFinishAsyncLoad( int nFileIndex, int nBlockNum, AsyncCaptionData_t *pData );
 
 	void			Flush();
@@ -150,14 +167,26 @@ public:
 		float	m_flInterval;
 	};
 
+#ifdef HOE_DLL
+	int ComputeHeightOfItems( CUtlVector< CCloseCaptionItem *>& items );
+	bool CollapseDisplayItems( CUtlVector< CCloseCaptionItem *>& items, int& nAttempt );
+#endif // HOE_DLL
+
 private:
 
 	void ClearAsyncWork();
 	void ProcessAsyncWork();
+#ifdef HOE_DLL
+	bool AddAsyncWork( char const *tokenstream, const char *imagename, short id, bool bIsStream, float duration, bool fromplayer, bool direct = false );
+
+	void _ProcessSentenceCaptionStream( int wordCount, char const *tokenstream, const char *imagename, short id, const ClosedCaptionInfo_t *pInfo, const wchar_t *caption_full );
+	void _ProcessCaption( const wchar_t *caption, char const *tokenname, const char *imagename, short id, const ClosedCaptionInfo_t *pInfo, float duration, bool fromplayer, bool direct = false );
+#else // HOE_DLL
 	bool AddAsyncWork( char const *tokenstream, bool bIsStream, float duration, bool fromplayer, bool direct = false );
 
 	void _ProcessSentenceCaptionStream( int wordCount, char const *tokenstream, const wchar_t *caption_full );
 	void _ProcessCaption( const wchar_t *caption, char const *tokenname, float duration, bool fromplayer, bool direct = false );
+#endif // HOE_DLL
 
 	CUtlLinkedList< CAsyncCaption *, unsigned short >	m_AsyncWork;
 
@@ -206,6 +235,14 @@ private:
 	CPanelAnimationVar( float, m_flItemFadeInTime, "ItemFadeInTime", "0.15" );
 	CPanelAnimationVar( float, m_flItemFadeOutTime, "ItemFadeOutTime", "0.3" );
 	CPanelAnimationVar( int, m_nTopOffset, "topoffset", "40" );
+#ifdef HOE_DLL
+	CPanelAnimationVarAliasType( int, m_iIconSize, "IconSize", "20", "proportional_int" );
+
+	int GetIconSize( void ) const
+	{
+		return min( m_iIconSize, 48 );
+	}
+#endif // HOE_DLL
 
 	CUtlVector< AsyncCaption_t > m_AsyncCaptions;
 	bool		m_bLocked;

@@ -92,7 +92,11 @@ bool CAI_Pathfinder::UseStrongOptimizations()
 	}
 
 #ifdef HL2_DLL
+#ifdef HOE_DLL
+	if( GetOuter()->ClassifyPlayerAllyVital() )
+#else // HOE_DLL
 	if( GetOuter()->Classify() == CLASS_PLAYER_ALLY_VITAL )
+#endif // HOE_DLL
 	{
 		return false;
 	}

@@ -454,8 +454,11 @@ void SporeExplosion::InputDisable( inputdata_t &inputdata )
 }
 
 BEGIN_DATADESC( CFireTrail )
-
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_flLifetime, FIELD_FLOAT, "lifetime" ),
+#else
 	DEFINE_FIELD( m_flLifetime, FIELD_FLOAT ),
+#endif
 	DEFINE_FIELD( m_nAttachment, FIELD_INTEGER ),
 
 END_DATADESC()
@@ -466,6 +469,22 @@ IMPLEMENT_SERVERCLASS_ST( CFireTrail, DT_FireTrail )
 END_SEND_TABLE()
 
 LINK_ENTITY_TO_CLASS( env_fire_trail, CFireTrail );
+
+#ifdef HOE_DLL
+void CFireTrail::Spawn( void )
+{
+	BaseClass::Spawn();
+
+	// mapmaker created!
+	if ( m_flLifetime > 0 )
+	{
+		if ( GetParent() )
+			FollowEntity( GetParent(), NULL );
+		SetLifetime( m_flLifetime );
+		m_flLifetime += gpGlobals->curtime;
+	}
+}
+#endif // HOE_DLL
 
 void CFireTrail::Precache( void )
 {

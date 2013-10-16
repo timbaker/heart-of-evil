@@ -41,6 +41,9 @@
 #include "hud.h"
 #include "NavProgress.h"
 #include "commentary_modelviewer.h"
+#ifdef HOE_DLL
+#include "hoe/letters_dialog.h"
+#endif
 
 // our definition
 #include "baseviewport.h"
@@ -234,6 +237,9 @@ void CBaseViewport::CreateDefaultPanels( void )
 	// AddNewPanel( CreatePanelByName( PANEL_TEAM ), "PANEL_TEAM" );
 	// AddNewPanel( CreatePanelByName( PANEL_CLASS ), "PANEL_CLASS" );
 	// AddNewPanel( CreatePanelByName( PANEL_BUY ), "PANEL_BUY" );
+#ifdef HOE_DLL
+//	AddNewPanel( CreatePanelByName( PANEL_LETTERS ), "PANEL_LETTERS" );
+#endif
 #endif
 }
 
@@ -257,6 +263,13 @@ IViewPortPanel* CBaseViewport::CreatePanelByName(const char *szPanelName)
 	IViewPortPanel* newpanel = NULL;
 
 #ifndef _XBOX
+#ifdef HOE_DLL
+	DevMsg( "CBaseViewport::CreatePanelByName %s\n", szPanelName );
+	if ( Q_strcmp(PANEL_LETTERS, szPanelName) == 0 )
+	{
+		newpanel = new CLettersDialog( this );
+	}
+#else // HOE_DLL
 	if ( Q_strcmp(PANEL_SCOREBOARD, szPanelName) == 0 )
 	{
 		newpanel = new CClientScoreBoardDialog( this );
@@ -288,6 +301,7 @@ IViewPortPanel* CBaseViewport::CreatePanelByName(const char *szPanelName)
 		newpanel = new CNavProgress( this );
 	}
 #endif	// TF_CLIENT_DLL
+#endif // HOE_DLL
 #endif
 
 	if ( Q_strcmp(PANEL_COMMENTARY_MODELVIEWER, szPanelName) == 0 )

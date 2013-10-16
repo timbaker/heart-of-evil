@@ -94,9 +94,15 @@ public:
 	float			GetDmgModClub( void ) { return m_flDmgModClub; }
 	float			GetDmgModExplosive( void ) { return m_flDmgModExplosive; }
 	void			SetExplosiveRadius( float flRadius ) { m_explodeRadius = flRadius; }
+#ifdef HOE_DLL
+	void			SetExplosiveDamage( float flDamage ) { m_explodeDamage = flDamage; }
+	float			GetExplosiveRadius( void ) { return m_explodeRadius; }
+	float			GetExplosiveDamage( void ) { return m_explodeDamage; }
+#else
 	void			SetExplosiveDamage( float flDamage ) { m_ExplosionMagnitude = flDamage; }
 	float			GetExplosiveRadius( void ) { return m_explodeRadius; }
 	float			GetExplosiveDamage( void ) { return m_ExplosionMagnitude; }
+#endif
 	void			SetPhysicsDamageTable( string_t iszTableName ) { m_iszPhysicsDamageTableName = iszTableName; }
 	string_t		GetPhysicsDamageTable( void ) { return m_iszPhysicsDamageTableName; }
 	void			SetBreakableModel( string_t iszModel ) { m_iszBreakableModel = iszModel; }
@@ -129,7 +135,12 @@ private:
 	QAngle		m_GibDir;
 	string_t 	m_iszGibModel;
 	string_t 	m_iszSpawnObject;
+#ifdef HOE_DLL
+	// the Wiki says it has "ExplodeDamage", "ExplodeRadius" and "explodemagnitude"
+	float		m_explodeDamage;
+#else
 	int			m_ExplosionMagnitude;
+#endif
 	float		m_flPressureDelay;		// Delay before breaking when destoyed by pressure
 	int			m_iMinHealthDmg;		// minimum damage attacker must have to cause damage
 	bool		m_bTookPhysicsDamage;

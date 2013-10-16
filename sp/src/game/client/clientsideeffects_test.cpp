@@ -139,6 +139,10 @@ FX_PlayerTracer
 
 #define	TRACER_BASE_OFFSET	8
 
+#ifdef HOE_DLL
+ConVar hoe_plr_tracer_width_multiplier( "hoe_plr_tracer_width_multiplier", "1.0" );
+#endif
+
 void FX_PlayerTracer( Vector& start, Vector& end )
 {
 	VPROF_BUDGET( "FX_PlayerTracer", VPROF_BUDGETGROUP_PARTICLE_RENDERING );
@@ -150,7 +154,11 @@ void FX_PlayerTracer( Vector& start, Vector& end )
 	length = VectorNormalize( shotDir );
 
 	//We don't want to draw them if they're too close to us
+#ifdef HOE_THIRDPERSON
+	if ( length < 128 )
+#else
 	if ( length < 256 )
+#endif
 		return;
 
 	//Randomly place the tracer along this line, with a random length
@@ -164,7 +172,11 @@ void FX_PlayerTracer( Vector& start, Vector& end )
 	//materialName = ( random->RandomInt( 0, 1 ) ) ? "effects/tracer_middle" : "effects/tracer_middle2";
 	materialName = "effects/spark";
 
+#ifdef HOE_DLL
+	t = new CFXStaticLine( "Tracer", dStart, dEnd, random->RandomFloat( 0.5f, 0.75f ) * hoe_plr_tracer_width_multiplier.GetFloat(), 0.01f, materialName, 0 );
+#else
 	t = new CFXStaticLine( "Tracer", dStart, dEnd, random->RandomFloat( 0.5f, 0.75f ), 0.01f, materialName, 0 );
+#endif
 	assert( t );
 
 	//Throw it into the list
@@ -288,6 +300,9 @@ void FX_TracerSound( const Vector &start, const Vector &end, int iTracerType )
 	g_BulletWhiz.m_nextWhizTime = gpGlobals->curtime + random->RandomFloat( flMinWhizTime, flMaxWhizTime );
 }
 
+#ifdef HOE_DLL
+ConVar hoe_tracer_width_multiplier( "hoe_tracer_width_multiplier", "1.0" );
+#endif
 
 void FX_Tracer( Vector& start, Vector& end, int velocity, bool makeWhiz )
 {
@@ -306,7 +321,11 @@ void FX_Tracer( Vector& start, Vector& end, int velocity, bool makeWhiz )
 		float life = ( dist + length ) / velocity;	//NOTENOTE: We want the tail to finish its run as well
 		
 		//Add it
+#ifdef HOE_DLL
+		FX_AddDiscreetLine( start, dir, velocity, length, dist, random->RandomFloat( 0.75f, 0.9f ) * hoe_tracer_width_multiplier.GetFloat(), life, "effects/spark" );
+#else
 		FX_AddDiscreetLine( start, dir, velocity, length, dist, random->RandomFloat( 0.75f, 0.9f ), life, "effects/spark" );
+#endif
 	}
 
 	if( makeWhiz )

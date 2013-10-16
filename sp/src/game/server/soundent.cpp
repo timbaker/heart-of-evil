@@ -42,6 +42,9 @@ BEGIN_SIMPLE_DATADESC( CSound )
 	DEFINE_FIELD( m_bHasOwner,			FIELD_BOOLEAN ),
 //	DEFINE_FIELD( m_iMyIndex,			FIELD_INTEGER ),
 	DEFINE_FIELD( m_hTarget,			FIELD_EHANDLE ),
+#ifdef HOE_SOUND_SHAPE
+	DEFINE_FIELD( m_vecRay,				FIELD_POSITION_VECTOR ),
+#endif // HOE_SOUND_SHAPE
 
 END_DATADESC()
 
@@ -59,6 +62,9 @@ void CSound::Clear ( void )
 	m_bNoExpirationTime = false;
 	m_iNext				= SOUNDLIST_EMPTY;
 	m_iNextAudible		= 0;
+#ifdef HOE_SOUND_SHAPE
+	m_vecRay			= vec3_origin;
+#endif // HOE_SOUND_SHAPE
 }
 
 //=========================================================
@@ -71,6 +77,9 @@ void CSound::Reset ( void )
 	m_iType			= 0;
 	m_iVolume		= 0;
 	m_iNext			= SOUNDLIST_EMPTY;
+#ifdef HOE_SOUND_SHAPE
+	m_vecRay		= vec3_origin;
+#endif // HOE_SOUND_SHAPE
 }
 
 //=========================================================
@@ -117,6 +126,25 @@ bool CSound::FIsScent ( void )
 	}
 }
 
+#ifdef HOE_SOUND_SHAPE
+//---------------------------------------------------------
+Vector CSound::CalcSoundOrigin( const Vector& vecListener, const Vector& vecOrigin )
+{
+	if ( m_vecRay != vec3_origin )
+	{
+		Vector pos;
+		CalcClosestPointOnLineSegment( vecListener, vecOrigin, vecOrigin + m_vecRay, pos );
+		return pos;
+	}
+	return vecOrigin;
+}
+
+//---------------------------------------------------------
+Vector CSound::HackGetSoundOrigin( const Vector& vecListener )
+{
+	return CalcSoundOrigin( vecListener, m_vecOrigin );
+}
+#endif // HOE_SOUND_SHAPE
 
 //---------------------------------------------------------
 // This function returns the spot the listener should be
@@ -126,6 +154,58 @@ bool CSound::FIsScent ( void )
 // sound is more interesting than the actual location of the
 // sound effect.
 //---------------------------------------------------------
+#ifdef HOE_SOUND_SHAPE
+Vector CSound::HackGetSoundReactOrigin( const Vector& vecListener )
+{
+	// Check pure types.
+	switch( m_iType )
+	{
+	case SOUND_BULLET_IMPACT:
+	case SOUND_PHYSICS_DANGER:
+		if( m_hOwner.Get() != NULL )
+		{
+			// We really want the origin of this sound's 
+			// owner.
+			return CalcSoundOrigin( vecListener, m_hOwner->GetAbsOrigin() );
+		}
+		else
+		{
+			// If the owner is somehow invalid, we'll settle
+			// for the sound's origin rather than a crash.
+			return CalcSoundOrigin( vecListener, m_vecOrigin );
+		}
+		break;
+	}
+
+	if( m_iType & SOUND_CONTEXT_REACT_TO_SOURCE )
+	{
+		if( m_hOwner.Get() != NULL )
+		{
+			return CalcSoundOrigin( vecListener, m_hOwner->GetAbsOrigin() );
+		}
+	}
+
+	// Check for types with additional context.
+	if( m_iType & SOUND_DANGER )
+	{
+		if( (m_iType & SOUND_CONTEXT_FROM_SNIPER) )
+		{
+			if( m_hOwner.Get() != NULL )
+			{
+				// Be afraid of the sniper's location, not where the bullet will hit.
+				return CalcSoundOrigin( vecListener, m_hOwner->GetAbsOrigin() );
+			}
+			else
+			{
+				return CalcSoundOrigin( vecListener, m_vecOrigin );
+			}
+		}
+	}
+
+
+	return CalcSoundOrigin( vecListener, m_vecOrigin );
+}
+#else // HOE_SOUND_SHAPE
 const Vector &CSound::GetSoundReactOrigin( void )
 {
 	
@@ -177,6 +257,7 @@ const Vector &CSound::GetSoundReactOrigin( void )
 
 	return GetSoundOrigin();
 }
+#endif // HOE_SOUND_SHAPE
 
 
 
@@ -315,6 +396,43 @@ void CSoundEnt::Think ( void )
 
 				if( displaysoundlist.GetInt() == 1 || (displaysoundlist.GetInt() == 2 && pSound->IsSoundType( SOUND_DANGER ) ) )
 				{
+#ifdef HOE_SOUND_SHAPE
+					if ( pSound->m_vecRay != vec3_origin )
+					{
+						// axis
+						NDebugOverlay::Line( pSound->m_vecOrigin, pSound->m_vecOrigin + pSound->m_vecRay, r,g,b, false, 0.1 );
+
+						// cylinder ends
+						NDebugOverlay::Circle( pSound->m_vecOrigin, pSound->Volume(), r, g, b, 255, false, 0.1 );
+						NDebugOverlay::Circle( pSound->m_vecOrigin + pSound->m_vecRay, pSound->Volume(), r, g, b, 255, false, 0.1 );
+					}
+					else
+					{
+						Vector origin = pSound->m_vecOrigin;
+						NDebugOverlay::Line( origin, origin + forward * pSound->Volume(), r,g,b, false, 0.1 );
+						NDebugOverlay::Line( origin, origin - forward * pSound->Volume(), r,g,b, false, 0.1 );
+
+						NDebugOverlay::Line( origin, origin + right * pSound->Volume(), r,g,b, false, 0.1 );
+						NDebugOverlay::Line( origin, origin - right * pSound->Volume(), r,g,b, false, 0.1 );
+
+						NDebugOverlay::Line( origin, origin + up * pSound->Volume(), r,g,b, false, 0.1 );
+						NDebugOverlay::Line( origin, origin - up * pSound->Volume(), r,g,b, false, 0.1 );
+
+						if( pSound->m_flOcclusionScale != 1.0 )
+						{
+							// Draw the occluded radius, too.
+							r = 0; g = 150; b = 255;
+							NDebugOverlay::Line( origin, origin + forward * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+							NDebugOverlay::Line( origin, origin - forward * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+
+							NDebugOverlay::Line( origin, origin + right * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+							NDebugOverlay::Line( origin, origin - right * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+
+							NDebugOverlay::Line( origin, origin + up * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+							NDebugOverlay::Line( origin, origin - up * pSound->OccludedVolume(), r,g,b, false, 0.1 );
+						}
+					}
+#else // HOE_SOUND_SHAPE
 					NDebugOverlay::Line( pSound->GetSoundOrigin(), pSound->GetSoundOrigin() + forward * pSound->Volume(), r,g,b, false, 0.1 );
 					NDebugOverlay::Line( pSound->GetSoundOrigin(), pSound->GetSoundOrigin() - forward * pSound->Volume(), r,g,b, false, 0.1 );
 
@@ -337,6 +455,7 @@ void CSoundEnt::Think ( void )
 						NDebugOverlay::Line( pSound->GetSoundOrigin(), pSound->GetSoundOrigin() + up * pSound->OccludedVolume(), r,g,b, false, 0.1 );
 						NDebugOverlay::Line( pSound->GetSoundOrigin(), pSound->GetSoundOrigin() - up * pSound->OccludedVolume(), r,g,b, false, 0.1 );
 					}
+#endif // HOE_SOUND_SHAPE
 				}
 
 				DevMsg( 2, "Soundlist: %d / %d  (%d)\n", ISoundsInList( SOUNDLISTTYPE_ACTIVE ),ISoundsInList( SOUNDLISTTYPE_FREE ), ISoundsInList( SOUNDLISTTYPE_ACTIVE ) - m_cLastActiveSounds );
@@ -426,12 +545,20 @@ int CSoundEnt::IAllocSound( void )
 // InsertSound - Allocates a free sound and fills it with 
 // sound info.
 //=========================================================
+#ifdef HOE_SOUND_SHAPE
+CSound *CSoundEnt::InsertSound ( int iType, const Vector &vecOrigin, int iVolume, float flDuration, CBaseEntity *pOwner, int soundChannelIndex, CBaseEntity *pSoundTarget )
+#else // HOE_SOUND_SHAPE
 void CSoundEnt::InsertSound ( int iType, const Vector &vecOrigin, int iVolume, float flDuration, CBaseEntity *pOwner, int soundChannelIndex, CBaseEntity *pSoundTarget )
+#endif // HOE_SOUND_SHAPE
 {
 	int	iThisSound;
 
 	if ( !g_pSoundEnt )
+#ifdef HOE_SOUND_SHAPE
+		return NULL;
+#else // HOE_SOUND_SHAPE
 		return;
+#endif // HOE_SOUND_SHAPE
 
 	if( soundChannelIndex == SOUNDENT_CHANNEL_UNSPECIFIED )
 	{
@@ -447,8 +574,28 @@ void CSoundEnt::InsertSound ( int iType, const Vector &vecOrigin, int iVolume, f
 
 	if ( iThisSound == SOUNDLIST_EMPTY )
 	{
+#ifdef HOE_DLL
+		static const char *channame[] = {
+			"UNSPECIFIED",
+			"REPEATING",
+			"REPEATED_DANGER",
+			"REPEATED_PHYSICS_DANGER",
+			"WEAPON",
+			"INJURY",
+			"BULLET_IMPACT",
+			"NPC_FOOTSTEP",
+			"SPOOKY_NOISE",
+			"ZOMBINE_GRENADE",
+	};
+		DevMsg( "Could not AllocSound() for InsertSound() (Game DLL) owner=%s channel=%s\n", pOwner ? pOwner->GetDebugName() : "none", channame[soundChannelIndex] );
+#else // HOE_DLL
 		DevMsg( "Could not AllocSound() for InsertSound() (Game DLL)\n" );
+#endif // HOE_DLL
+#ifdef HOE_SOUND_SHAPE
+		return NULL;
+#else // HOE_SOUND_SHAPE
 		return;
+#endif // HOE_SOUND_SHAPE
 	}
 
 	CSound *pSound;
@@ -485,7 +632,22 @@ void CSoundEnt::InsertSound ( int iType, const Vector &vecOrigin, int iVolume, f
 	{
 		Msg("  Added Danger Sound! Duration:%f (Time:%f)\n", flDuration, gpGlobals->curtime );
 	}
+#ifdef HOE_SOUND_SHAPE
+	pSound->m_vecRay = vec3_origin;
+	return pSound;
+#endif // HOE_SOUND_SHAPE
 }
+
+#ifdef HOE_SOUND_SHAPE
+//---------------------------------------------------------
+CSound *CSoundEnt::InsertSoundRay( int iType, const Vector &vecOrigin, const Vector &vecRay, int iVolume, float flDuration, CBaseEntity *pOwner, int soundChannelIndex, CBaseEntity *pSoundTarget )
+{
+	CSound *pSound = InsertSound( iType, vecOrigin, iVolume, flDuration, pOwner, soundChannelIndex, pSoundTarget );
+	if ( pSound )
+		pSound->SetSoundRay( vecRay );
+	return pSound;
+}
+#endif // HOE_SOUND_SHAPE
 
 //---------------------------------------------------------
 //---------------------------------------------------------
@@ -689,7 +851,11 @@ CSound*	CSoundEnt::GetLoudestSoundOfType( int iType, const Vector &vecEarPositio
 
 		if ( pSound && pSound->m_iType == iType && pSound->ValidateOwner() )
 		{
+#ifdef HOE_SOUND_SHAPE
+			flDist = ( pSound->HackGetSoundOrigin( vecEarPosition ) - vecEarPosition ).Length();
+#else // HOE_SOUND_SHAPE
 			flDist = ( pSound->GetSoundOrigin() - vecEarPosition ).Length();
+#endif // HOE_SOUND_SHAPE
 
 			//FIXME: This doesn't match what's in Listen()
 			//flDist = UTIL_DistApprox( pSound->GetSoundOrigin(), vecEarPosition );

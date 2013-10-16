@@ -13,6 +13,9 @@
 #include <KeyValues.h>
 #include "filesystem.h"
 #include "iinput.h"
+#ifdef HOE_DLL
+#include "hoe/scope_rendertarget.h"
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -431,6 +434,21 @@ void CBaseHudWeaponSelection::UserCmd_Close(void)
 //-----------------------------------------------------------------------------
 void CBaseHudWeaponSelection::UserCmd_NextWeapon(void)
 {
+#ifdef HOE_DLL
+	/* C_WeaponM21 zooming */
+	if ( ScopeRenderTarget != NULL && ScopeRenderTarget->IsScopeTextureActive() )
+	{
+		C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+		if ( pPlayer && pPlayer->GetActiveWeapon() &&
+			pPlayer->GetActiveWeapon()->IsIronSightsActive() )
+		{
+			int fov = ScopeRenderTarget->GetScopeTextureFOV();
+			ScopeRenderTarget->SetScopeTextureFOV( clamp( fov + 5, 5, 40 ) );
+			return;
+		}
+	}
+#endif // HOE_DLL
+
 	// If we're not allowed to draw, ignore weapon selections
 	if ( !BaseClass::ShouldDraw() )
 		return;
@@ -448,6 +466,21 @@ void CBaseHudWeaponSelection::UserCmd_NextWeapon(void)
 //-----------------------------------------------------------------------------
 void CBaseHudWeaponSelection::UserCmd_PrevWeapon(void)
 {
+#ifdef HOE_DLL
+	/* C_WeaponM21 zooming */
+	if ( ScopeRenderTarget != NULL && ScopeRenderTarget->IsScopeTextureActive() )
+	{
+		C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+		if ( pPlayer && pPlayer->GetActiveWeapon() &&
+			pPlayer->GetActiveWeapon()->IsIronSightsActive() )
+		{
+			int fov = ScopeRenderTarget->GetScopeTextureFOV();
+			ScopeRenderTarget->SetScopeTextureFOV( clamp( fov - 5, 5, 40 ) );
+			return;
+		}
+	}
+#endif // HOE_DLL
+
 	// If we're not allowed to draw, ignore weapon selections
 	if ( !BaseClass::ShouldDraw() )
 		return;

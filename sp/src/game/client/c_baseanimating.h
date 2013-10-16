@@ -162,6 +162,12 @@ public:
 	virtual void FireEvent( const Vector& origin, const QAngle& angles, int event, const char *options );
 	virtual void FireObsoleteEvent( const Vector& origin, const QAngle& angles, int event, const char *options );
 	virtual const char* ModifyEventParticles( const char* token ) { return token; }
+#if defined ( HOE_THIRDPERSON )
+	virtual void ResetEventsParity() { m_nPrevResetEventsParity = -1; } // used to force animation events to function on players so the muzzleflashes and other events occur
+																		// so new functions don't have to be made to parse the models like CSS does in ProcessMuzzleFlashEvent
+																		// allows the multiplayer world weapon models to declare the muzzleflashes, and other effects like sp
+																		// without the need to script it and add extra parsing code.
+#endif
 
 	// Parses and distributes muzzle flash events
 	virtual bool DispatchMuzzleEffect( const char *options, bool isFirstPerson );
@@ -691,6 +697,13 @@ private:
 	float m_flScaleEnd[NUM_HITBOX_FIRES];
 	float m_flScaleTimeStart[NUM_HITBOX_FIRES];
 	float m_flScaleTimeEnd[NUM_HITBOX_FIRES];
+
+#ifdef HOE_DLL
+public:
+	int m_bloodColor;
+	virtual int BloodColor( void ) { return m_bloodColor; }
+	void SetBloodColor( int nBloodColor ) { m_bloodColor = nBloodColor; }
+#endif // HOE_DLL
 };
 
 //-----------------------------------------------------------------------------

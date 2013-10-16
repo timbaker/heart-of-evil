@@ -32,6 +32,10 @@
 #include "tf_gamerules.h"
 #endif
 
+#ifdef HOE_DLL
+#include "hoe/options_dialog.h"
+#endif // HOE_DLL
+
 using namespace vgui;
 
 void MP3Player_Create( vgui::VPANEL parent );
@@ -220,11 +224,18 @@ void VGui_CreateGlobalPanels( void )
 #ifdef SIXENSE
 	g_pSixenseInput->CreateGUI( gameToolParent );
 #endif
+#ifdef HOE_DLL
+	mypanel->Create( enginevgui->GetPanel( PANEL_GAMEUIDLL ) );
+#endif // HOE_DLL
 }
 
 void VGui_Shutdown()
 {
 	VGUI_DestroyClientDLLRootPanel();
+
+#ifdef HOE_DLL
+	mypanel->Destroy();
+#endif // HOE_DLL
 
 #ifndef _X360
 	MP3Player_Destroy();

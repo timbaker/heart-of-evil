@@ -26,6 +26,11 @@
 #include "c_portal_player.h"
 #endif // PORTAL
 
+#include "IVRenderView.h"
+#ifdef HOE_THIRDPERSON
+#include "input.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -99,6 +104,19 @@ bool CHudCrosshair::ShouldDraw( void )
 		return false;
 #endif // PORTAL
 
+#if defined(HOE_THIRDPERSON)
+	if ( ::input->CAM_IsThirdPerson() )
+	{
+		if ( pWeapon == NULL || pPlayer->m_fThirdPersonAimMode == false )
+			return false;
+	}
+	else
+#endif
+
+#if defined(HOE_IRONSIGHTS)
+	if ( pWeapon != NULL && pWeapon->IsIronSightsActive() == true )
+		return false;
+#endif
 	/* disabled to avoid assuming it's an HL2 player.
 	// suppress crosshair in zoom.
 	if ( pPlayer->m_HL2Local.m_bZooming )
@@ -143,6 +161,34 @@ extern ConVar cl_crosshair_scale;
 
 void CHudCrosshair::GetDrawPosition ( float *pX, float *pY, bool *pbBehindCamera, QAngle angleCrosshairOffset )
 {
+#ifdef HOE_THIRDPERSON
+	if ( ::input->CAM_IsThirdPerson() )
+	{
+		C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
+		Vector vecStart, vecStop, vecDirection, vecCrossPos;
+		trace_t tr;
+			 
+		AngleVectors(pPlayer->EyeAngles(), &vecDirection);
+
+		vecStart= pPlayer->EyePosition();
+		vecStop = vecStart + vecDirection * MAX_TRACE_LENGTH;
+
+MDLCACHE_CRITICAL_SECTION(); // not sure about this
+		UTIL_TraceLine( vecStart, vecStop, MASK_SHOT, pPlayer , COLLISION_GROUP_NONE, &tr );
+			
+			
+		ScreenTransform(tr.endpos, vecCrossPos);
+
+//		m_pCrosshair->DrawSelf( 0.5f*ScreenWidth()+0.5f*ScreenWidth()*vecCrossPos[0]-0.5f*m_pCrosshair->Width(), 
+//					0.5f*ScreenHeight()+(0.5f*ScreenHeight()*-vecCrossPos[1])-0.5f*m_pCrosshair->Height(),
+//					m_clrCrosshair );
+		surface()->DrawSetColor( 255, 255, 0, 128 );
+		int radius = 8;
+		surface()->DrawOutlinedCircle(0.5f*ScreenWidth()+0.5f*ScreenWidth()*vecCrossPos[0],
+			0.5f*ScreenHeight()+(0.5f*ScreenHeight()*-vecCrossPos[1]), radius, 48);
+	}
+#endif // HOE_THIRDPERSON
+
 	QAngle curViewAngles = CurrentViewAngles();
 	Vector curViewOrigin = CurrentViewOrigin();
 

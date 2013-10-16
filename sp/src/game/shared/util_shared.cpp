@@ -342,9 +342,11 @@ bool CTraceFilterNoNPCsOrPlayer::ShouldHitEntity( IHandleEntity *pHandleEntity, 
 		CBaseEntity *pEntity = EntityFromEntityHandle( pHandleEntity );
 		if ( !pEntity )
 			return NULL;
+#ifndef HOE_DLL
 #ifndef CLIENT_DLL
 		if ( pEntity->Classify() == CLASS_PLAYER_ALLY )
 			return false; // CS hostages are CLASS_PLAYER_ALLY but not IsNPC()
+#endif
 #endif
 		return (!pEntity->IsNPC() && !pEntity->IsPlayer());
 	}

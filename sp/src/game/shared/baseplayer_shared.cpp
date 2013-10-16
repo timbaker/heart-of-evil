@@ -21,6 +21,10 @@
 	#include "c_world.h"
 	#include "view.h"
 	#include "client_virtualreality.h"
+#ifdef HOE_DLL
+#include "hl2_player_shared.h"
+#endif
+
 	#define CRecipientFilter C_RecipientFilter
 	#include "headtrack/isourcevirtualreality.h"
 
@@ -160,8 +164,19 @@ float CBasePlayer::GetPlayerMaxSpeed()
 //-----------------------------------------------------------------------------
 void CBasePlayer::ItemPreFrame()
 {
+#ifdef HOE_DLL
+	// ItemPreFrame() was never called when in a vehicle, I changed that so it is.
+	// But we can't +USE things in a vehicle.  I just want the weapons updated.
+	if ( GetVehicle() == NULL )
+		PlayerUse();
+
+	// If I *could* use weapons then don't return (allows holstered weapons to reload)
+//	if ( UsingStandardWeaponsInVehicle() == false )
+//		return;
+#else
 	// Handle use events
 	PlayerUse();
+#endif
 
 	CBaseCombatWeapon *pActive = GetActiveWeapon();
 
@@ -1242,6 +1257,21 @@ CBaseEntity *CBasePlayer::FindUseEntity()
 		pNearest = DoubleCheckUseNPC( pNearest, searchCenter, forward );
 	}
 
+#ifdef HOE_DLL
+	// If no other entity was found by normal means and the player is looking directly at a useable ally, then
+	// allow the player to call him over.
+	if ( !pNearest )
+	{
+#define ALLY_CALL_DISTANCE 768.0f // must be <=1024 used by DoubleCheckUseNPC
+		EyeVectors( &forward );
+		UTIL_TraceLine( searchCenter, searchCenter + forward * ALLY_CALL_DISTANCE, useableContents, this, COLLISION_GROUP_NONE, &tr );
+		if ( IsUseableEntity( tr.m_pEnt, 0 ) && tr.m_pEnt->MyNPCPointer() && tr.m_pEnt->MyNPCPointer()->IsPlayerAlly( this ) )
+		{
+			pNearest = DoubleCheckUseNPC( tr.m_pEnt, searchCenter, forward );
+		}
+	}
+#endif
+
 	if ( sv_debug_player_use.GetBool() )
 	{
 		if ( !pNearest )
@@ -1523,6 +1553,115 @@ void CBasePlayer::ResetObserverMode()
 #endif
 }
 
+#if defined(HOE_DLL) && defined(CLIENT_DLL)
+
+static float g_lateralBob;
+static float g_verticalBob;
+static float lastspeedtime;
+
+#define	HL2_BOB_CYCLE_MIN	1.0f
+#define	HL2_BOB_CYCLE_MAX	0.45f
+#define	HL2_BOB			0.002f
+#define	HL2_BOB_UP		0.5f
+
+void CalcSprintBob( CBasePlayer *player )
+{
+	static float bobtime;
+	static float lastbobtime;
+	float cycle;
+
+	//NOTENOTE: For now, let this cycle continue when in the air, because it snaps badly without it
+
+	if ( ( !gpGlobals->frametime ) || ( player == NULL ) )
+	{
+		//NOTENOTE: We don't use this return value in our case (need to restructure the calculation function setup!)
+		return;// just use old value
+	}
+
+	//Find the speed of the player
+	float speed = player->GetLocalVelocity().Length2D();
+
+	//FIXME: This maximum speed value must come from the server.
+	//		 MaxSpeed() is not sufficient for dealing with sprinting - jdw
+
+	speed = clamp( speed, -320, 320 );
+
+	// If not sprinting don't bob
+	if ( !((CHL2_Player*)player)->IsSprinting() )
+	{
+		// Reduce speed to zero after 0.2 seconds
+		if ( gpGlobals->curtime >= lastspeedtime && gpGlobals->curtime < lastspeedtime + 0.2 )
+			speed = 320 * (1.0 - (gpGlobals->curtime - lastspeedtime) / 0.2);
+		else
+			speed = 0;
+	}
+	else
+	{
+		// Remember the last time we moved at bob speed
+		lastspeedtime = gpGlobals->curtime;
+	}
+
+	float bob_offset = RemapVal( speed, 0, 320, 0.0f, 1.0f );
+	
+	bobtime += ( gpGlobals->curtime - lastbobtime ) * bob_offset;
+	lastbobtime = gpGlobals->curtime;
+
+	//Calculate the vertical bob
+	cycle = bobtime - (int)(bobtime/HL2_BOB_CYCLE_MAX)*HL2_BOB_CYCLE_MAX;
+	cycle /= HL2_BOB_CYCLE_MAX;
+
+	if ( cycle < HL2_BOB_UP )
+	{
+		cycle = M_PI * cycle / HL2_BOB_UP;
+	}
+	else
+	{
+		cycle = M_PI + M_PI*(cycle-HL2_BOB_UP)/(1.0 - HL2_BOB_UP);
+	}
+	
+	g_verticalBob = speed*0.005f;
+	g_verticalBob = g_verticalBob*0.3 + g_verticalBob*0.7*sin(cycle);
+
+	g_verticalBob = clamp( g_verticalBob, -4.0f, 4.0f );
+
+	//Calculate the lateral bob
+	cycle = bobtime - (int)(bobtime/HL2_BOB_CYCLE_MAX*2)*HL2_BOB_CYCLE_MAX*2;
+	cycle /= HL2_BOB_CYCLE_MAX*2;
+
+	if ( cycle < HL2_BOB_UP )
+	{
+		cycle = M_PI * cycle / HL2_BOB_UP;
+	}
+	else
+	{
+		cycle = M_PI + M_PI*(cycle-HL2_BOB_UP)/(1.0 - HL2_BOB_UP);
+	}
+
+	g_lateralBob = speed*0.005f;
+	g_lateralBob = g_lateralBob*0.3 + g_lateralBob*0.7*sin(cycle);
+	g_lateralBob = clamp( g_lateralBob, -8.0f, 8.0f );
+}
+
+void ApplySprintBob( CBasePlayer *pPlayer, Vector &eyeOrigin, QAngle &eyeAngles )
+{
+	Vector	forward, right;
+	AngleVectors( eyeAngles, &forward, &right, NULL );
+
+	// Apply bob, but scaled down to 40%
+//	VectorMA( eyeOrigin, g_verticalBob * 0.1f, forward, eyeOrigin );
+	
+	// X bob a bit more
+	eyeOrigin[0] += g_lateralBob * 0.2f;
+	
+	// bob the angles
+//	eyeAngles[ ROLL ]	+= g_verticalBob * 0.5f;
+	eyeAngles[ PITCH ]	-= g_verticalBob * 0.3f;
+	eyeAngles[ YAW ]	-= g_lateralBob  * 0.3f;
+
+	VectorMA( eyeOrigin, g_lateralBob * 0.8f, right, eyeOrigin );
+}
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 // Input  : eyeOrigin - 
@@ -1627,6 +1766,14 @@ void CBasePlayer::CalcPlayerView( Vector& eyeOrigin, QAngle& eyeAngles, float& f
 		vieweffects->ApplyShake( eyeOrigin, eyeAngles, 1.0 );
 	}
 #endif
+
+#if defined(HOE_DLL) && defined(CLIENT_DLL)
+	if ( !prediction->InPrediction() && (((CHL2_Player*)this)->IsSprinting() || (lastspeedtime + 0.2 >= gpGlobals->curtime) ) )
+	{
+		CalcSprintBob( this );
+		ApplySprintBob( this, eyeOrigin, eyeAngles );
+	}
+#endif // HOE_DLL
 
 #if defined( CLIENT_DLL )
 	// Apply a smoothing offset to smooth out prediction errors.

@@ -256,7 +256,11 @@ ConVar CClient_Precipitation::s_raindensity( "r_raindensity","0.001", FCVAR_CHEA
 ConVar CClient_Precipitation::s_rainwidth( "r_rainwidth", "0.5", FCVAR_CHEAT );
 ConVar CClient_Precipitation::s_rainlength( "r_rainlength", "0.1f", FCVAR_CHEAT );
 ConVar CClient_Precipitation::s_rainspeed( "r_rainspeed", "600.0f", FCVAR_CHEAT );
+#ifdef HOE_DLL
+ConVar r_rainalpha( "r_rainalpha", "1.0", FCVAR_CHEAT );
+#else
 ConVar r_rainalpha( "r_rainalpha", "0.4", FCVAR_CHEAT );
+#endif
 ConVar r_rainalphapow( "r_rainalphapow", "0.8", FCVAR_CHEAT );
 
 

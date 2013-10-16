@@ -83,6 +83,25 @@ void TracerCallback( const CEffectData &data )
 	bool bWhiz = (data.m_fFlags & TRACER_FLAG_WHIZ);
 	int iEntIndex = data.entindex();
 
+#ifdef HOE_THIRDPERSON
+	if ( iEntIndex && iEntIndex == player->index && player->ShouldDrawLocalPlayer() )
+	{
+		CBaseCombatWeapon *pWeapon = player->GetActiveWeapon();
+		if ( pWeapon != NULL )
+		{
+			Vector vecMuzzle;
+			QAngle vecMuzzleAngles;
+
+			if ( pWeapon->GetAttachment( 1, vecMuzzle, vecMuzzleAngles ) )
+			{
+				vecStart = vecMuzzle;
+			}
+		}
+		FX_PlayerTracer( vecStart, (Vector&)data.m_vOrigin );
+		return;
+	}
+	else
+#endif
 	if ( iEntIndex && iEntIndex == player->index )
 	{
 		Vector	foo = data.m_vStart;

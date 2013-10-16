@@ -36,7 +36,9 @@ CHudRadar *GetHudRadar()
 	return s_Radar;
 }
 
+#ifndef HOE_DLL
 DECLARE_HUDELEMENT( CMapOverview );
+#endif // HOE_DLL
 
 //---------------------------------------------------------
 //---------------------------------------------------------
@@ -193,12 +195,13 @@ void CHudRadar::MaintainRadarContacts()
 void CHudRadar::SetVisible(bool state)
 {
 	BaseClass::SetVisible(state);
-
+#ifndef HOE_DLL
 	if( g_pMapOverview  &&  g_pMapOverview->GetMode() == CMapOverview::MAP_MODE_RADAR )
 	{
 		// We are the hud element still, but he is in charge of the new style now.
 		g_pMapOverview->SetVisible( state );		
 	}
+#endif // HOE_DLL
 }
 
 #define RADAR_BLIP_FADE_TIME 1.0f

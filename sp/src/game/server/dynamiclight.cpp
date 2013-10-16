@@ -33,6 +33,12 @@ public:
 	void InputTurnOn( inputdata_t &inputdata );
 	void InputTurnOff( inputdata_t &inputdata );
 	void InputToggle( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void InputSetStyle( inputdata_t &inputdata )
+	{
+		m_LightStyle = inputdata.value.Int();
+	}
+#endif // HOE_DLL
 
 public:
 	unsigned char m_ActualFlags;
@@ -68,6 +74,9 @@ BEGIN_DATADESC( CDynamicLight )
 	DEFINE_INPUTFUNC( FIELD_VOID, "TurnOn", InputTurnOn ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "TurnOff", InputTurnOff ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "Toggle", InputToggle ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetStyle", InputSetStyle ),
+#endif // HOE_DLL
 
 END_DATADESC()
 

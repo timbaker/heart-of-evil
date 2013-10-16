@@ -17,6 +17,7 @@ $Project "client"
 {
 	"game\client\client_hl2.vpc"		[($WIN32||$X360||$POSIX) && $HL2]
 	"game\client\client_episodic.vpc"	[($WIN32||$X360||$POSIX) && $EPISODIC]
+	"game\client\client_hoe.vpc"	[($WIN32||$X360||$POSIX) && $HOE]
 }
 
 $Project "fgdlib"
@@ -28,6 +29,7 @@ $Project "game_shader_dx9"
 {
 	"materialsystem\stdshaders\game_shader_dx9_hl2.vpc" [$HL2]
 	"materialsystem\stdshaders\game_shader_dx9_episodic.vpc"  [$EPISODIC]
+	"materialsystem\stdshaders\game_shader_dx9_hoe.vpc"  [$HOE]
 }
 
 $Project "glview"
@@ -44,6 +46,7 @@ $Project "server"
 {
 	"game\server\server_hl2.vpc"		[($WIN32||$X360||$POSIX) && $HL2]
 	"game\server\server_episodic.vpc"	[($WIN32||$X360||$POSIX) && $EPISODIC]
+	"game\server\server_hoe.vpc"	[($WIN32||$X360||$POSIX) && $HOE]
 }
 
 $Project "mathlib"

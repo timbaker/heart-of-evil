@@ -198,6 +198,32 @@ BEGIN_RECV_TABLE_NOBASE( CPlayerLocalData, DT_Local )
 	RecvPropEHandle( RECVINFO( m_audio.ent ) ),
 END_RECV_TABLE()
 
+#ifdef HOE_THIRDPERSON
+static void RecvProxy_ThirdPerson( const CRecvProxyData *pData, void *pStruct, void *pOut )
+{
+	C_BasePlayer *pPlayer = (C_BasePlayer *) pStruct;
+	Assert( pPlayer );
+	if ( !pPlayer )
+		return;
+
+	bool fThirdPerson = pData->m_Value.m_Int != 0;
+
+	// This gets called very often
+	if ( pPlayer->m_fThirdPerson == fThirdPerson )
+		return;
+
+	extern void CAM_ToFirstPerson(void);
+	extern void CAM_ToThirdPerson(void);
+	DevMsg("RecvProxy_ThirdPerson %d ==> %d\n", (int)pPlayer->m_fThirdPerson, (int)fThirdPerson );
+
+	pPlayer->m_fThirdPerson = fThirdPerson;
+	if ( fThirdPerson )
+		CAM_ToThirdPerson();
+	else
+		CAM_ToFirstPerson();
+}
+#endif // HOE_THIRDPERSON
+
 // -------------------------------------------------------------------------------- //
 // This data only gets sent to clients that ARE this player entity.
 // -------------------------------------------------------------------------------- //
@@ -212,7 +238,13 @@ END_RECV_TABLE()
 		RecvPropFloat		( RECVINFO(m_flFriction) ),
 
 		RecvPropArray3		( RECVINFO_ARRAY(m_iAmmo), RecvPropInt( RECVINFO(m_iAmmo[0])) ),
-		
+
+#ifdef HOE_THIRDPERSON
+		RecvPropInt			( RECVINFO(m_fThirdPerson), 0, RecvProxy_ThirdPerson ),
+		RecvPropInt			( RECVINFO(m_fThirdPersonAimMode) ),
+		RecvPropFloat		( RECVINFO(m_flThirdPersonAimModeTime) ),
+#endif // HOE_THIRDPERSON
+
 		RecvPropInt			( RECVINFO(m_fOnTarget) ),
 
 		RecvPropInt			( RECVINFO( m_nTickBase ) ),
@@ -460,7 +492,11 @@ void C_BasePlayer::Spawn( void )
 
 	m_iFOV	= 0;	// init field of view.
 
+#ifdef HOE_THIRDPERSON
+    SetModel( "models/playerZ.mdl" );
+#else
     SetModel( "models/player.mdl" );
+#endif
 
 	Precache();
 
@@ -1180,6 +1216,10 @@ void C_BasePlayer::TeamChange( int iNewTeam )
 //-----------------------------------------------------------------------------
 void C_BasePlayer::UpdateFlashlight()
 {
+#ifdef HOE_DLL
+	if ( gpGlobals->frametime == 0 ) return;
+#endif
+
 	// The dim light is the flashlight.
 	if ( IsEffectActive( EF_DIMLIGHT ) )
 	{
@@ -1198,7 +1238,23 @@ void C_BasePlayer::UpdateFlashlight()
 		EyeVectors( &vecForward, &vecRight, &vecUp );
 
 		// Update the light with the new position and direction.		
+#ifdef HOE_THIRDPERSON
+		// Move the flashlight origin ahead of the character in thirdperson.
+		// Only do this if the player model receives the flashlight texture.
+		// FIXME: need to do this until the flashlight doesn't cast the player's shadow.
+		if ( ShouldDrawLocalPlayer() )
+		{
+			Vector vecEnd = EyePosition() + vecForward * 16 + vecUp * 16;
+			trace_t tr;
+			UTIL_TraceHull( EyePosition(), vecEnd, Vector(-4, -4, -4), Vector(4, 4, 4), MASK_SOLID & ~(CONTENTS_HITBOX), this, COLLISION_GROUP_NONE, &tr );
+			if ( tr.startsolid == false )
+				m_pFlashlight->UpdateLight( tr.endpos, vecForward, vecRight, vecUp, FLASHLIGHT_DISTANCE );
+		}
+		else
+			m_pFlashlight->UpdateLight( EyePosition(), vecForward, vecRight, vecUp, FLASHLIGHT_DISTANCE );
+#else // HOE_THIRDPERSON
 		m_pFlashlight->UpdateLight( EyePosition(), vecForward, vecRight, vecUp, FLASHLIGHT_DISTANCE );
+#endif // HOE_THIRDPERSON
 	}
 	else if (m_pFlashlight)
 	{

@@ -12,7 +12,11 @@
 #pragma once
 #endif
 
-
+#ifdef HOE_THIRDPERSON
+#include "hoe/hl2mp_playeranimstate.h"
+#include "iviewrender_beams.h"
+#include "c_te_legacytempents.h"
+#endif // HOE_THIRDPERSON
 #include "c_baseplayer.h"
 #include "c_hl2_playerlocaldata.h"
 
@@ -24,6 +28,35 @@ public:
 	DECLARE_PREDICTABLE();
 
 						C_BaseHLPlayer();
+#ifdef HOE_THIRDPERSON
+						~C_BaseHLPlayer( void );
+
+	virtual const QAngle& GetRenderAngles();
+
+	void ClientThink( void );
+
+	virtual void UpdateClientSideAnimation();
+	void DoAnimationEvent( PlayerAnimEvent_t event, int nData = 0 );
+
+	inline Activity GetCurrentMainActivity() { return m_PlayerAnimState->GetCurrentMainActivity(); };
+
+	virtual CStudioHdr *OnNewModel( void );
+	void InitializePoseParams( void );
+
+	virtual ShadowType_t ShadowCastType( void );
+	virtual bool ShouldReceiveProjectedTextures( int flags );
+
+	void UpdateLookAt( void );
+
+#endif // HOE_THIRDPERSON
+
+#ifdef HOE_THIRDPERSON
+	void UpdateFlashlightElight( void );
+	void StartFlashlightElight( void );
+	void StopFlashlightElight( void );
+
+	int m_FlashlightElightKey; // Light up the player's surroundings when the flashlight is on
+#endif
 
 	virtual void		OnDataChanged( DataUpdateType_t updateType );
 
@@ -73,9 +106,43 @@ private:
 	float				m_flSpeedMod;
 	float				m_flExitSpeedMod;
 
+#ifdef HOE_THIRDPERSON
+	CHL2MPPlayerAnimState *m_PlayerAnimState;
+
+	int	m_headYawPoseParam;
+	int	m_headPitchPoseParam;
+	float m_headYawMin;
+	float m_headYawMax;
+	float m_headPitchMin;
+	float m_headPitchMax;
+
+	Vector m_vLookAtTarget;
+
+	float m_flLastBodyYaw;
+	float m_flCurrentHeadYaw;
+	float m_flCurrentHeadPitch;
+
+	float EdgeLimitPoseParameter( int iParameter, float flValue, float flBase );
+	int m_iAttachmentEyes;
+	int m_iAttachmentChest;
+	int m_iAttachmentForward;
+	Vector m_goalHeadCorrection;
+
+	Beam_t *m_pAimBeam;
+	C_LocalTempEntity *m_pAimLaserDot;
+#endif // HOE_THIRDPERSON
 
 friend class CHL2GameMovement;
 };
 
+#ifdef HOE_THIRDPERSON
+inline C_BaseHLPlayer *ToHL2Player( CBaseEntity *pEntity )
+{
+	if ( !pEntity || !pEntity->IsPlayer() )
+		return NULL;
+
+	return dynamic_cast<C_BaseHLPlayer*>( pEntity );
+}
+#endif // HOE_THIRDPERSON
 
 #endif

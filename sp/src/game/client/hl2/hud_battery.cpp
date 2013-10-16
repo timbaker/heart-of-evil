@@ -44,6 +44,17 @@ public:
 private:
 	int		m_iBat;	
 	int		m_iNewBat;
+#ifdef HOE_DLLxxx // FIXME: need a scaleable helmet image
+	CPanelAnimationVarAliasType( float, image_xpos, "image_xpos", "8", "proportional_float" );
+	CHudTexture	*m_icon;
+	virtual void PaintLabel()
+	{
+		if ( m_icon )
+		{
+			m_icon->DrawSelf( image_xpos, (GetTall() - m_icon->Height()) / 2, gHUD.m_clrNormal );
+		}
+	}
+#endif
 };
 
 DECLARE_HUDELEMENT( CHudBattery );
@@ -83,6 +94,9 @@ void CHudBattery::Reset( void )
 void CHudBattery::VidInit( void )
 {
 	Reset();
+#ifdef HOE_DLLxxx
+	m_icon = gHUD.GetIcon( "battery" );
+#endif
 }
 
 //-----------------------------------------------------------------------------

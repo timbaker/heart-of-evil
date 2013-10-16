@@ -409,7 +409,11 @@ protected:
 	
 #ifdef HL2_DLL
 	// Health regeneration for friendly allies
+#ifdef HOE_DLL
+	virtual bool ShouldRegenerateHealth( void ) { return ( ClassifyPlayerAllyVital() ); }
+#else // HOE_DLL
 	virtual bool ShouldRegenerateHealth( void ) { return ( Classify() == CLASS_PLAYER_ALLY_VITAL ); }
+#endif // HOE_DLL
 #endif
 
 	inline bool CanSpeakWhileScripting();

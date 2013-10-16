@@ -680,7 +680,9 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetDefaultResponseSystemSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetCommentarySaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetEventQueueSaveRestoreBlockHandler() );
+#ifndef HOE_DLL
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetAchievementSaveRestoreBlockHandler() );
+#endif
 
 	// The string system must init first + shutdown last
 	IGameSystem::Add( GameStringSystem() );
@@ -756,7 +758,9 @@ void CServerGameDLL::DLLShutdown( void )
 	// Due to dependencies, these are not autogamesystems
 	ModelSoundsCacheShutdown();
 
+#ifndef HOE_DLL
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetAchievementSaveRestoreBlockHandler() );
+#endif
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetCommentarySaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetEventQueueSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetDefaultResponseSystemSaveRestoreBlockHandler() );
@@ -972,6 +976,11 @@ bool CServerGameDLL::LevelInit( const char *pMapName, char const *pMapEntities, 
 
 	//Tony; parse custom manifest if exists!
 	ParseParticleEffectsMap( pMapName, false );
+#ifdef HOE_DLL
+	// The engine must be setting sv_autosave to zero behind my back.
+	// It affects the code below as well as the "autosave" server command.
+	sv_autosave.SetValue( true );
+#endif // HOE_DLL
 
 	// IGameSystem::LevelInitPreEntityAllSystems() is called when the world is precached
 	// That happens either in LoadGameState() or in MapEntity_ParseAllEntities()
@@ -1060,6 +1069,10 @@ bool CServerGameDLL::LevelInit( const char *pMapName, char const *pMapEntities, 
 
 	g_AIFriendliesTalkSemaphore.Release();
 	g_AIFoesTalkSemaphore.Release();
+#ifdef HOE_DLL
+	extern float g_flHumanSpeechTime;
+	g_flHumanSpeechTime = 0.0f;
+#endif
 	g_OneWayTransition = false;
 
 	// clear any pending autosavedangerous
@@ -1577,6 +1590,73 @@ void CServerGameDLL::PreSave( CSaveRestoreData *s )
 
 #include "client_textmessage.h"
 
+#ifdef HOE_DLL
+
+// This little hack lets me marry BSP names to messages in titles.txt
+typedef struct
+{
+	char *pBSPName;
+	char *pTitleName;
+	int chapter; // HOE: added this to make it easy to update sv_unlockedchapters
+} TITLECOMMENT;
+
+static TITLECOMMENT gTitleComments[] =
+{
+	{ "nama0", "#hoe_Chapter1_Title", 1 },
+	{ "nama1", "#hoe_Chapter1_Title", 1 },
+	{ "nama2", "#hoe_Chapter1_Title", 1 },
+
+	{ "namb0", "#hoe_Chapter2_Title", 2 },
+	{ "namb1", "#hoe_Chapter2_Title", 2 },
+	{ "namb2", "#hoe_Chapter2_Title", 2 },
+	{ "namb3", "#hoe_Chapter2_Title", 2 },
+	{ "namb4", "#hoe_Chapter2_Title", 2 },
+	{ "namb5", "#hoe_Chapter2_Title", 2 },
+
+	{ "namc0", "#hoe_Chapter3_Title", 3 },
+	{ "namc1", "#hoe_Chapter3_Title", 3 },
+	{ "namc2", "#hoe_Chapter3_Title", 3 },
+	{ "namc3", "#hoe_Chapter3_Title", 3 },
+	{ "namc4", "#hoe_Chapter3_Title", 3 },
+	{ "namc5", "#hoe_Chapter3_Title", 3 },
+
+	{ "namd0", "#hoe_Chapter4_Title", 4 },
+	{ "namd1", "#hoe_Chapter4_Title", 4 },
+	{ "namd2", "#hoe_Chapter4_Title", 4 },
+	{ "namd3", "#hoe_Chapter4_Title", 4 },
+	{ "namd4", "#hoe_Chapter4_Title", 4 },
+	{ "namd5", "#hoe_Chapter4_Title", 4 },
+
+	{ "name0", "#hoe_Chapter5_Title", 5 },
+	{ "name1", "#hoe_Chapter5_Title", 5 },
+	{ "name2", "#hoe_Chapter5_Title", 5 },
+	{ "name3", "#hoe_Chapter5_Title", 5 },
+	{ "name4", "#hoe_Chapter5_Title", 5 },
+	{ "name5", "#hoe_Chapter5_Title", 5 },
+
+	{ "namf0", "#hoe_Chapter6_Title", 6 },
+	{ "namf1", "#hoe_Chapter6_Title", 6 },
+	{ "namf2", "#hoe_Chapter6_Title", 6 },
+	{ "namf3", "#hoe_Chapter6_Title", 6 },
+	{ "namf4", "#hoe_Chapter6_Title", 6 },
+	{ "namf5", "#hoe_Chapter6_Title", 6 },
+	{ "namg4", "#hoe_Chapter6_Title", 6 },
+
+	{ "namg0", "#hoe_Chapter7_Title", 7 },
+	{ "namg1", "#hoe_Chapter7_Title", 7 },
+	{ "namg2", "#hoe_Chapter7_Title", 7 },
+	{ "namg3", "#hoe_Chapter7_Title", 7 },
+	{ "namg5", "#hoe_Chapter7_Title", 7 },
+
+	// These are not chapters, but we still want the savefile comment to show the map name in the
+	// load dialog
+	{ "alamo0", "#HOE_Alamo", 0 },
+	{ "alamo1", "#HOE_Alamo", 0 },
+	{ "village", "#HOE_Village", 0 },
+};
+
+#else // !HOE_DLL
+
 // This little hack lets me marry BSP names to messages in titles.txt
 typedef struct
 {
@@ -1720,6 +1800,8 @@ static TITLECOMMENT gTitleComments[] =
 	{ "ep2_outland_12", "#ep2_Chapter6_Title" },
 #endif
 };
+
+#endif // !HOE_DLL
 
 #ifdef _XBOX
 void CServerGameDLL::GetTitleName( const char *pMapName, char* pTitleBuff, int titleBuffSize )
@@ -2039,6 +2121,22 @@ ConVar sv_unlockedchapters( "sv_unlockedchapters", "1", FCVAR_ARCHIVE | FCVAR_AR
 //-----------------------------------------------------------------------------
 void UpdateChapterRestrictions( const char *mapname )
 {
+#ifdef HOE_DLL
+	for ( int i = 0; i < ARRAYSIZE(gTitleComments); i++ )
+	{
+		if ( !Q_stricmp( mapname, gTitleComments[i].pBSPName ) )
+		{
+			if ( sv_unlockedchapters.GetInt() < gTitleComments[i].chapter )
+			{
+				// ok we're at a higher chapter, unlock
+				sv_unlockedchapters.SetValue( gTitleComments[i].chapter );
+			}
+			g_nCurrentChapterIndex = gTitleComments[i].chapter;
+			return;
+		}
+	}
+#else // !HOE_DLL
+
 	// look at the chapter for this map
 	char chapterTitle[64];
 	chapterTitle[0] = 0;
@@ -2124,6 +2222,7 @@ void UpdateChapterRestrictions( const char *mapname )
 
 		g_nCurrentChapterIndex = nNewChapter;
 	}
+#endif // !HOE_DLL
 }
 
 //-----------------------------------------------------------------------------

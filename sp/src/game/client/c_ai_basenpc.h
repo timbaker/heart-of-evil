@@ -41,6 +41,10 @@ public:
 	void					OnDataChanged( DataUpdateType_t type );
 	bool					ImportantRagdoll( void ) { return m_bImportanRagdoll;	}
 
+#ifdef HOE_DLL
+	virtual C_BaseAnimating *BecomeRagdollOnClient( void );
+#endif
+
 private:
 	C_AI_BaseNPC( const C_AI_BaseNPC & ); // not defined, not accessible
 	float m_flTimePingEffect;
@@ -55,6 +59,10 @@ private:
 	bool m_bFadeCorpse;
 	bool m_bSpeedModActive;
 	bool m_bImportanRagdoll;
+
+#ifdef HOE_DLL
+	EHANDLE m_hDeathSound;
+#endif
 };
 
 

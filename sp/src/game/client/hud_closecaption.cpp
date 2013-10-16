@@ -22,6 +22,9 @@
 #include "filesystem.h"
 #include "datacache/idatacache.h"
 #include "SoundEmitterSystem/isoundemittersystembase.h"
+#ifdef HOE_DLL
+#include "hoe/closedcaption_shared.h"
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -65,8 +68,10 @@ public:
 	void	SetPos( int x, int y );
 	void	GetPos( int& x, int &y ) const;
 
+#ifndef HOE_DLL
 	void	SetFadeStart( float flTime );
 	float	GetFadeStart( void ) const;
+#endif // HOE_DLL
 
 	void	SetBold( bool bold );
 	bool	GetBold() const;
@@ -104,8 +109,9 @@ private:
 	int				m_nY;
 	int				m_nWidth;
 	int				m_nHeight;
+#ifndef HOE_DLL
 	float			m_flFadeStartTime;
-
+#endif // HOE_DLL
 	bool			m_bBold;
 	bool			m_bItalic;
 	wchar_t			*m_pszStream;
@@ -120,8 +126,12 @@ CCloseCaptionWorkUnit::CCloseCaptionWorkUnit() :
 	m_bItalic(false),
 	m_pszStream(0),
 	m_Color( Color( 255, 255, 255, 255 ) ),
+#ifdef HOE_DLL
+	m_hFont( 0 )
+#else
 	m_hFont( 0 ),
 	m_flFadeStartTime(0)
+#endif // HOE_DLL
 {
 }
 
@@ -163,6 +173,7 @@ void CCloseCaptionWorkUnit::GetPos( int& x, int &y ) const
 	y = m_nY;
 }
 
+#ifndef HOE_DLL
 void CCloseCaptionWorkUnit::SetFadeStart( float flTime )
 {
 	m_flFadeStartTime = flTime;
@@ -172,6 +183,7 @@ float CCloseCaptionWorkUnit::GetFadeStart( void ) const
 {
 	return m_flFadeStartTime;
 }
+#endif // HOE_DLL
 
 void CCloseCaptionWorkUnit::SetBold( bool bold )
 {
@@ -220,6 +232,109 @@ Color CCloseCaptionWorkUnit::GetColor() const
 	return m_Color;
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+// A line is made up of 1 or more work units.
+class CCloseCaptionLine
+{
+public:
+
+	CCloseCaptionLine() :
+		m_flFadeStartTime(0),
+		m_nTotalWidth(0),
+		m_nTotalHeight(0)
+	{
+	}
+
+	~CCloseCaptionLine( void )
+	{
+		while ( m_Work.Count() > 0 )
+		{
+			CCloseCaptionWorkUnit *unit = m_Work[ 0 ];
+			m_Work.Remove( 0 );
+			delete unit;
+		}
+	}
+
+	void	SetHeight( int h )
+	{
+		m_nTotalHeight = h;
+	}
+
+	int		GetHeight() const
+	{
+		return m_nTotalHeight;
+	}
+
+	void	SetWidth( int w )
+	{
+		m_nTotalWidth = w;
+	}
+
+	int		GetWidth() const
+	{
+		return m_nTotalWidth;
+	}
+
+	void SetPos( int x, int y )
+	{
+		m_nX = x;
+		m_nY = y;
+	}
+
+	void GetPos( int& x, int &y ) const
+	{
+		x = m_nX;
+		y = m_nY;
+	}
+
+	int GetTop( void ) const
+	{
+		return m_nY;
+	}
+
+	void SetFadeStart( float flTime )
+	{
+		m_flFadeStartTime = flTime;
+	}
+
+	float GetFadeStart( void ) const
+	{
+		return m_flFadeStartTime;
+	}
+
+	void	AddWork( CCloseCaptionWorkUnit *unit )
+	{
+		m_Work.AddToTail( unit );
+	}
+
+	int		GetNumWorkUnits() const
+	{
+		return m_Work.Count();
+	}
+
+	CCloseCaptionWorkUnit *GetWorkUnit( int index )
+	{
+		Assert( index >= 0 && index < m_Work.Count() );
+
+		return m_Work[ index ];
+	}
+
+	void Dump()
+	{
+		for ( int i = 0; i < m_Work.Count(); i++)
+			m_Work[i]->Dump();
+	}
+
+	int				m_nX;
+	int				m_nY;
+	int				m_nTotalWidth;
+	int				m_nTotalHeight;
+	float			m_flFadeStartTime;
+
+	CUtlVector< CCloseCaptionWorkUnit * >	m_Work;
+};
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -229,6 +344,11 @@ class CCloseCaptionItem
 public:
 	CCloseCaptionItem( 
 		const wchar_t	*stream,
+#ifdef HOE_DLL
+		const char *imagename,
+		short id,
+		const ClosedCaptionInfo_t *pInfo,
+#endif // HOE_DLL
 		float timetolive,
 		float addedtime,
 		float predisplay,
@@ -241,6 +361,14 @@ public:
 		m_nTotalWidth( 0 ),
 		m_nTotalHeight( 0 ),
 		m_bSizeComputed( false ),
+#ifdef HOE_DLL
+		m_nDisplayHeight( 0 ),
+		m_bNextLineIsNew( true ),
+		m_nFadedLines( 0 ),
+		m_pInfo( pInfo ),
+		m_nCaptionID( id ),
+		m_bSFX( false ),
+#endif // HOE_DLL
 		m_bFromPlayer( fromplayer )
 
 	{
@@ -249,6 +377,9 @@ public:
 		SetInitialLifeSpan( timetolive );
 		SetPreDisplayTime( cc_predisplay_time.GetFloat() + predisplay );
 		m_bValid = valid;
+#ifdef HOE_DLL
+		SetIcon( imagename );
+#endif // HOE_DLL
 	}
 
 	CCloseCaptionItem( const CCloseCaptionItem& src )
@@ -258,17 +389,28 @@ public:
 		m_bValid = src.m_bValid;
 		m_bFromPlayer = src.m_bFromPlayer;
 		m_flAddedTime = src.m_flAddedTime;
+#ifdef HOE_DLL
+		m_pIcon = src.m_pIcon;
+#endif // HOE_DLL
 	}
 
 	~CCloseCaptionItem( void )
 	{
+#ifdef HOE_DLL
+		while ( m_Lines.Count() > 0 )
+		{
+			CCloseCaptionLine *line = m_Lines[ 0 ];
+			m_Lines.Remove( 0 );
+			delete line;
+		}
+#else // HOE_DLL
 		while ( m_Work.Count() > 0 )
 		{
 			CCloseCaptionWorkUnit *unit = m_Work[ 0 ];
 			m_Work.Remove( 0 );
 			delete unit;
 		}
-
+#endif // HOE_DLL
 	}
 
 	void SetStream( const wchar_t *stream)
@@ -323,6 +465,101 @@ public:
 		return m_nTotalWidth;
 	}
 
+#ifdef HOE_DLL
+	void	SetDisplayHeight( int h )
+	{
+		m_nDisplayHeight = h;
+	}
+	int		GetDisplayHeight() const
+	{
+		return m_nDisplayHeight;
+	}
+
+	void	SetNextLineIsNew( bool bNew )
+	{
+		m_bNextLineIsNew = bNew;
+	}
+
+	bool	GetNextLineIsNew( void ) const
+	{
+		return m_bNextLineIsNew;
+	}
+
+	void	AddLine( CCloseCaptionLine *line )
+	{
+		m_Lines.AddToTail( line );
+	}
+
+	int		GetNumLines() const
+	{
+		return m_Lines.Count();
+	}
+
+	CCloseCaptionLine *GetLine( int index )
+	{
+		Assert( index >= 0 && index < m_Lines.Count() );
+
+		return m_Lines[ index ];
+	}
+
+	void	SetDisplayLines( int n )
+	{
+		m_nDisplayLines = n;
+	}
+	int		GetDisplayLines() const
+	{
+		return m_nDisplayLines;
+	}
+
+	void	SetCollapsedLines( int n )
+	{
+		m_nCollapsedLines = n;
+	}
+	int		GetCollapsedLines() const
+	{
+		return m_nCollapsedLines;
+	}
+
+	void	SetFadedLines( int n )
+	{
+		m_nFadedLines = n;
+	}
+	int		GetFadedLines() const
+	{
+		return m_nFadedLines;
+	}
+
+	void SetIcon( const char *imagename )
+	{
+		if ( imagename && imagename[0] )
+			m_pIcon = gHUD.GetIcon( imagename );
+		else
+			m_pIcon = NULL;
+	}
+	CHudTexture *GetIcon( void ) const
+	{
+		return m_pIcon;
+	}
+
+	const ClosedCaptionInfo_t *GetInfo( void ) const
+	{
+		return m_pInfo;
+	}
+
+	short GetCaptionID( void ) const
+	{
+		return m_nCaptionID;
+	}
+
+	void SetSFX( bool sfx )
+	{
+		m_bSFX = sfx;
+	}
+	bool GetSFX( void ) const
+	{
+		return m_bSFX;
+	}
+#else // HOE_DLL
 	void	AddWork( CCloseCaptionWorkUnit *unit )
 	{
 		m_Work.AddToTail( unit );
@@ -339,6 +576,7 @@ public:
 
 		return m_Work[ index ];
 	}
+#endif // HOE_DLL
 
 	void		SetSizeComputed( bool computed )
 	{
@@ -424,8 +662,20 @@ private:
 	bool				m_bSizeComputed;
 	bool				m_bFromPlayer;
 
+#ifdef HOE_DLL
+	int					m_nDisplayHeight;
+	bool				m_bNextLineIsNew;
+	int					m_nDisplayLines;
+	int					m_nCollapsedLines;
+	int					m_nFadedLines;
+	CUtlVector< CCloseCaptionLine * >	m_Lines;
+	CHudTexture			*m_pIcon;
+	const ClosedCaptionInfo_t *m_pInfo;
+	short				m_nCaptionID;
+	bool				m_bSFX;
+#else // HOE_DLL
 	CUtlVector< CCloseCaptionWorkUnit * >	m_Work;
-
+#endif // HOE_DLL
 };
 
 struct VisibleStreamItem
@@ -809,6 +1059,9 @@ void CaptionAsyncLoaderCallback( const FileAsyncRequest_t &request, int numReadB
 DECLARE_HUDELEMENT( CHudCloseCaption );
 
 DECLARE_HUD_MESSAGE( CHudCloseCaption, CloseCaption );
+#ifdef HOE_DLL
+DECLARE_HUD_MESSAGE( CHudCloseCaption, RescindClosedCaption );
+#endif // HOE_DLL
 
 CHudCloseCaption::CHudCloseCaption( const char *pElementName )
 	: CHudElement( pElementName ), 
@@ -842,6 +1095,9 @@ CHudCloseCaption::CHudCloseCaption( const char *pElementName )
 	}
 
 	HOOK_HUD_MESSAGE( CHudCloseCaption, CloseCaption );
+#ifdef HOE_DLL
+	HOOK_HUD_MESSAGE( CHudCloseCaption, RescindClosedCaption );
+#endif // HOE_DLL
 
 	char uilanguage[ 64 ];
 	engine->GetUILanguage( uilanguage, sizeof( uilanguage ) );
@@ -957,6 +1213,9 @@ void CHudCloseCaption::Paint( void )
 	wrect_t rcText = rcOutput;
 
 	int avail_width = rcText.right - rcText.left - 2 * CC_INSET;
+#ifdef HOE_DLL
+	avail_width -= GetIconSize();
+#endif
 	int avail_height = rcText.bottom - rcText.top - 2 * CC_INSET;
 
 	int totalheight = 0;
@@ -965,6 +1224,116 @@ void CHudCloseCaption::Paint( void )
 	int c = m_Items.Count();
 	int maxwidth = 0;
 
+#ifdef HOE_DLL
+	bool bNoSFX = false;
+	CUtlVector< CCloseCaptionItem * > candidates;
+	for  ( i = 0; i < c; i++ )
+	{
+		CCloseCaptionItem *item = m_Items[ i ];
+
+		// Not ready for display yet.
+		if ( item->GetPreDisplayTime() > 0.0f )
+		{
+			continue;
+		}
+
+		bool bExclusive = ( item->GetInfo() && (item->GetInfo()->flags & ClosedCaptionInfo_t::CCI_EXCLUSIVE) );
+		if ( bExclusive )
+		{
+			candidates.RemoveAll();
+		}
+
+		if ( item->GetInfo() && (item->GetInfo()->flags & ClosedCaptionInfo_t::CCI_NOSFX) )
+		{
+			bNoSFX = true;
+		}
+
+		if ( !item->GetSizeComputed() )
+		{
+			ComputeStreamWork( avail_width, item );
+		}
+
+		// If we get more room than we had while previously drawing this item, use it.
+		// But don't make room for lines that have already faded away.
+		int nDisplayLines = item->GetNumLines() - item->GetFadedLines();
+		nDisplayLines = min( nDisplayLines, 4 );
+		item->SetDisplayLines( nDisplayLines );
+		item->SetCollapsedLines( item->GetNumLines() - nDisplayLines );
+
+		candidates.AddToTail( item );
+
+		if ( bExclusive )
+			break;
+	}
+
+	if ( bNoSFX )
+	{
+		for ( i = 0; i < candidates.Count(); i++ )
+		{
+			CCloseCaptionItem *item = m_Items[ i ];
+			if ( item->GetSFX() == true )
+			{
+				candidates.Remove( i );
+				--i;
+			}
+		}
+	}
+
+	int nCollapseAttempts = 1;
+	while ( true )
+	{
+		int iTotalHeight = ComputeHeightOfItems( candidates );
+		if ( iTotalHeight <= avail_height )
+			break;
+		if ( CollapseDisplayItems( candidates, nCollapseAttempts ) == false )
+		{
+			// Remove the oldest non-important item because it can't fit
+			bool bRemoved = false;
+			for ( i = 0; i < candidates.Count(); i++ )
+			{
+				if ( candidates[i]->GetInfo() && (candidates[i]->GetInfo()->flags & ClosedCaptionInfo_t::CCI_IMPORTANT) )
+					continue;
+				candidates.Remove( i );
+				bRemoved = true;
+				break;
+			}
+			// Couldn't remove any non-important items...
+			if ( !bRemoved )
+				break;
+
+			// Reset the number of display lines of each item to maximum and try again
+			for ( i = 0; i < candidates.Count(); i++ )
+			{
+				int nDisplayLines = candidates[i]->GetNumLines() - candidates[i]->GetFadedLines();
+				nDisplayLines = min( nDisplayLines, 4 );
+				candidates[i]->SetDisplayLines( nDisplayLines );
+				candidates[i]->SetCollapsedLines( candidates[i]->GetNumLines() - nDisplayLines );
+			}
+			nCollapseAttempts = 1;
+		}
+	}
+
+	for ( i = 0; i < candidates.Count(); i++ )
+	{
+		CCloseCaptionItem *item = candidates[i];
+
+		int itemwidth = item->GetWidth();
+		int itemheight = item->GetDisplayHeight();
+
+		totalheight += itemheight;
+		if ( itemwidth > maxwidth )
+		{
+			maxwidth = itemwidth;
+		}
+
+		VisibleStreamItem si;
+		si.height = itemheight;
+		si.width = itemwidth;
+		si.item = item;
+
+		visibleitems.AddToTail( si );
+	}
+#else // HOE_DLL
 	for  ( i = 0; i < c; i++ )
 	{
 		CCloseCaptionItem *item = m_Items[ i ];
@@ -1010,6 +1379,7 @@ void CHudCloseCaption::Paint( void )
 			visibleitems.Remove( 0 );
 		}	
 	}
+#endif // HOE_DLL
 
 	float desiredAlpha = visibleitems.Count() >= 1 ? 1.0f : 0.0f;
 
@@ -1078,6 +1448,9 @@ void CHudCloseCaption::Paint( void )
 	}
 
 	rcText.left += CC_INSET;
+#ifdef HOE_DLL
+	rcText.left += GetIconSize();
+#endif
 	rcText.right -= CC_INSET;
 
 	int textHeight = m_nCurrentHeight;
@@ -1114,6 +1487,114 @@ void CHudCloseCaption::Paint( void )
 		int iFadeLine = -1;
 		float flFadeLineAlpha = 1.0;
 	
+#ifdef HOE_DLL
+		int iTopOffset = 0;
+
+		// If the item height is greater than the display height of the item, 
+		// we need to slowly pan over this item. 
+		if ( height < item->GetHeight() )
+		{
+			// Figure out how many lines we'll need to move to see the whole caption
+#if 1
+			int iLines = item->GetCollapsedLines();
+#else
+			int iLines = item->GetNumLines();
+ 			int iTotalMove = 0;
+			for ( int j = 0; j < iLines; j++ )
+			{
+				CCloseCaptionLine *line = item->GetLine( j );
+				iTotalMove += line->GetHeight();
+				if ( iTotalMove >= (item->GetHeight() - height) )
+				{
+					iLines = j+1;
+					break;
+				}
+			}
+#endif
+			// Figure out the delta between each point where we move the line
+			float flAnimTime = 0 /*iLines * (CAPTION_PAN_SLIDE_TIME + CAPTION_PAN_FADE_TIME)*/;
+			float flLifeSpan = item->GetInitialLifeSpan() - flAnimTime;
+			float flMoveDelta = flLifeSpan / (float)item->GetNumLines();
+ 			float flCurMove = flLifeSpan - (item->GetTimeToLive() - flAnimTime);
+ 			int iHeightToMove = 0;
+
+ 			int iLinesToMove = clamp( floor( flCurMove / flMoveDelta ), 0, iLines );
+			if ( iLinesToMove )
+			{
+ 				int iCurrentLineHeight = 0;
+				for ( int j = 0; j < iLinesToMove; j++ )
+				{
+					iHeightToMove = iCurrentLineHeight;
+
+					CCloseCaptionLine *line = item->GetLine( j );
+  					iCurrentLineHeight += line->GetHeight();
+				}
+
+				// Slide to the desired distance, once the fade is done
+	 			float flTimePostMove = flCurMove - (flMoveDelta * iLinesToMove);
+ 				if ( flTimePostMove < CAPTION_PAN_FADE_TIME )
+				{
+					iFadeLine = iLinesToMove-1;
+
+					// It's time to fade out the top line. If it hasn't started fading yet, start it.
+					CCloseCaptionLine *line = item->GetLine(iFadeLine);
+					if ( line->GetFadeStart() == 0 )
+					{
+						line->SetFadeStart( gpGlobals->curtime );
+					}
+
+					// Fade out quickly
+					float flFadeTime = (gpGlobals->curtime - line->GetFadeStart()) /  CAPTION_PAN_FADE_TIME;
+					flFadeLineAlpha = clamp( 1.0 - flFadeTime, 0, 1 );
+				}
+				else if ( flTimePostMove < (CAPTION_PAN_FADE_TIME+CAPTION_PAN_SLIDE_TIME) )
+				{
+					flTimePostMove -= CAPTION_PAN_FADE_TIME;
+ 					float flSlideTime = clamp( flTimePostMove / 0.25, 0, 1 );
+ 					iHeightToMove += ceil((iCurrentLineHeight - iHeightToMove) * flSlideTime);
+				}
+				else
+				{
+					item->SetFadedLines( iLinesToMove );
+					iHeightToMove = iCurrentLineHeight;
+				}
+			}
+
+ 			iTopOffset = iHeightToMove;
+		}
+
+		rcText.bottom = rcText.top + height;
+
+		wrect_t rcOut = rcText;
+		rcOut.top -= iTopOffset;
+		rcOut.right = rcOut.left + si->width + 6;
+		
+		CHudTexture *pIcon = item->GetIcon();
+		if ( pIcon != NULL && pIcon->textureId != -1 )
+		{
+			int x = rcOut.left - GetIconSize() - CC_INSET / 2;
+			int y = rcText.top + (rcText.bottom - rcText.top - GetIconSize()) / 2;
+
+			float alpha = item->GetAlpha( m_flItemHiddenTime, m_flItemFadeInTime, m_flItemFadeOutTime );
+
+			vgui::surface()->DrawSetColor( Color( 102, 92, 76, 200 * alpha ) );
+			vgui::surface()->DrawFilledRect( x, y, x + GetIconSize(), y + GetIconSize() );
+
+			vgui::surface()->DrawSetTexture( pIcon->textureId );
+			Color clr = gHUD.m_clrNormal;
+			clr[3] = 255 * alpha;
+			vgui::surface()->DrawSetColor( clr );
+			vgui::surface()->DrawTexturedSubRect( 
+				x, y, 
+				x + GetIconSize(), y + GetIconSize(), 
+				0, 0, 
+				1, 1 );
+//			pIcon->DrawSelfCropped( rcOut.left - 24 - CC_INSET / 2, rcText.top, 0, 0, 48, 48, 24, 24, gHUD.m_clrNormal );
+		}
+
+		DrawStream( rcOut, rcText, item, iFadeLine, flFadeLineAlpha );
+
+#else // HOE_DLL
 		// If the height is greater than the total height of the element, 
 		// we need to slowly pan over this item. 
 		if ( height > avail_height )
@@ -1189,6 +1670,7 @@ void CHudCloseCaption::Paint( void )
 		rcOut.right = rcOut.left + si->width + 6;
 		
 		DrawStream( rcOut, rcOutput, item, iFadeLine, flFadeLineAlpha );
+#endif // HOE_DLL
 
 		rcText.top += height;
 		rcText.bottom += height;
@@ -1248,6 +1730,30 @@ void CHudCloseCaption::OnTick( void )
 		}
 	}
 
+#ifdef HOE_DLL
+	for ( i = 0 ; i < c ; ++i )
+	{
+		CCloseCaptionItem *item = m_Items[ i ];
+
+		// Skip items not yet showing...
+		float predisplay = item->GetPreDisplayTime();
+		if ( predisplay > 0.0f )
+		{
+			continue;
+		}
+
+		float ttl = item->GetTimeToLive();
+		if ( ttl > 0.0f )
+		{
+			continue;
+		}
+
+		delete item;
+		m_Items.Remove( i );
+		--i;
+		--c;
+	}
+#else // HOE_DLL
 	// Pass two, remove from head until we get to first item with time remaining
 	bool foundfirstnondeletion = false;
 	for ( i = 0 ; i < c ; ++i )
@@ -1279,6 +1785,7 @@ void CHudCloseCaption::OnTick( void )
 		--i;
 		--c;
 	}
+#endif // HOE_DLL
 }
 
 void CHudCloseCaption::Reset( void )
@@ -1426,7 +1933,11 @@ bool CHudCloseCaption::StreamHasCommand( const wchar_t *stream, const wchar_t *s
 	return false;
 }
 
+#ifdef HOE_DLL
+void CHudCloseCaption::Process( const wchar_t *stream, float duration, const char *tokenstream, const char *image, short id, const ClosedCaptionInfo_t *pInfo, bool fromplayer, bool direct )
+#else // HOE_DLL
 void CHudCloseCaption::Process( const wchar_t *stream, float duration, const char *tokenstream, bool fromplayer, bool direct )
+#endif // HOE_DLL
 {
 	if ( !direct )
 	{
@@ -1480,6 +1991,7 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 	
 	float addedlife = 0.0f;
 
+#ifndef HOE_DLL
 	if ( m_Items.Count() > 0 )
 	{
 		// Get the remaining life span of the last item
@@ -1493,7 +2005,8 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 
 		lifespan = MAX( lifespan, prevlife );
 	}
-	
+#endif // HOE_DLL
+
 	float delay = 0.0f;
 	float override_duration = 0.0f;
 
@@ -1517,17 +2030,29 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 
 				if ( wcslen( phrase ) > 0 )
 				{
+#ifdef HOE_DLL
+//					delay -= cc_predisplay_time.GetFloat() - m_flItemHiddenTime;
+//					if ( delay < 0 ) delay = 0;
+					CCloseCaptionItem *item = new CCloseCaptionItem( phrase, image, id, pInfo, lifespan, addedlife, delay, valid, fromplayer );
+#else // HOE_DLL
 					CCloseCaptionItem *item = new CCloseCaptionItem( phrase, lifespan, addedlife, delay, valid, fromplayer );
+#endif // HOE_DLL
 					m_Items.AddToTail( item );
 					if ( StreamHasCommand( phrase, L"sfx" ) )
 					{
 						// SFX show up instantly.
 						item->SetPreDisplayTime( 0.0f );
+#ifdef HOE_DLL
+						item->SetSFX( true );
+#endif // HOE_DLL
 					}
 					
 					if ( GetFloatCommandValue( phrase, L"len", override_duration ) )
 					{
 						item->SetTimeToLive( override_duration );
+#ifdef HOE_DLL
+						item->SetInitialLifeSpan( override_duration );
+#endif // HOE_DLL
 					}
 				}
 
@@ -1554,13 +2079,20 @@ void CHudCloseCaption::Process( const wchar_t *stream, float duration, const cha
 	*out = L'\0';
 	if ( wcslen( phrase ) > 0 )
 	{
+#ifdef HOE_DLL
+		CCloseCaptionItem *item = new CCloseCaptionItem( phrase, image, id, pInfo, lifespan, addedlife, delay, valid, fromplayer );
+#else // HOE_DLL
 		CCloseCaptionItem *item = new CCloseCaptionItem( phrase, lifespan, addedlife, delay, valid, fromplayer );
+#endif // HOE_DLL
 		m_Items.AddToTail( item );
 
 		if ( StreamHasCommand( phrase, L"sfx" ) )
 		{
 			// SFX show up instantly.
 			item->SetPreDisplayTime( 0.0f );
+#ifdef HOE_DLL
+			item->SetSFX( true );
+#endif // HOE_DLL
 		}
 
 		if ( GetFloatCommandValue( phrase, L"len", override_duration ) )
@@ -1673,8 +2205,9 @@ void CHudCloseCaption::AddWorkUnit( CCloseCaptionItem *item,
 		wu->SetHeight( vgui::surface()->GetFontTall( params.font ) );
 		wu->SetPos( params.x, params.y );
 		wu->SetFont( params.font );
+#ifndef HOE_DLL
 		wu->SetFadeStart( 0 );
-
+#endif // HOE_DLL
 		int curheight = item->GetHeight();
 		int curwidth = item->GetWidth();
 
@@ -1685,9 +2218,37 @@ void CHudCloseCaption::AddWorkUnit( CCloseCaptionItem *item,
 		item->SetWidth( curwidth );
 
 		// Add it
+#ifdef HOE_DLL
+		CCloseCaptionLine *line;
+		if ( item->GetNextLineIsNew() == false && item->GetNumLines() > 0 )
+			line = item->GetLine( item->GetNumLines() - 1 );
+		else
+		{
+			line = new CCloseCaptionLine;
+			line->SetFadeStart( 0 );
+			line->SetPos( params.x, params.y );
+			item->AddLine( line );
+		}
+
+		curheight = line->GetHeight();
+		curwidth = line->GetWidth();
+
+		curheight = max( curheight, wu->GetHeight() );
+		curwidth = max( curwidth, params.x + wu->GetWidth() );
+
+		line->SetHeight( curheight );
+		line->SetWidth( curwidth );
+
+		line->AddWork( wu );
+
+		item->SetNextLineIsNew( params.newline );
+
+		params.Next( line->GetHeight() );
+#else // HOE_DLL
 		item->AddWork( wu );
 
 		params.Next( vgui::surface()->GetFontTall( params.font ) );
+#endif // HOE_DLL
 	}
 }
 
@@ -1769,7 +2330,14 @@ void CHudCloseCaption::ComputeStreamWork( int available_width, CCloseCaptionItem
 				AddWorkUnit( item, params );
 				params.bold = !params.bold;
 			}
-
+#ifdef HOE_DLL
+			else if ( !wcscmp( cmd, L"icon" ) )
+			{
+				char imagename[128];
+				Q_wcstostr( args, -1, imagename, sizeof(imagename) ),
+				item->SetIcon( imagename );
+			}
+#endif // HOE_DLL
 			continue;
 		}
 
@@ -1840,6 +2408,11 @@ void CHudCloseCaption::ComputeStreamWork( int available_width, CCloseCaptionItem
 	params.newline = true;
 	AddWorkUnit( item, params );
 
+#ifdef HOE_DLL
+	item->SetDisplayLines( item->GetNumLines() );
+	item->SetCollapsedLines( 0 );
+#endif // HOE_DLL
+
 	item->SetSizeComputed( true );
 
 	// DumpWork( item );
@@ -1847,16 +2420,74 @@ void CHudCloseCaption::ComputeStreamWork( int available_width, CCloseCaptionItem
 
 void CHudCloseCaption::	DumpWork( CCloseCaptionItem *item )
 {
+#ifdef HOE_DLL
+	int c = item->GetNumLines();
+	for ( int i = 0 ; i < c; ++i )
+	{
+		CCloseCaptionLine *line = item->GetLine( i );
+		line->Dump();
+	}
+#else // HOE_DLL
 	int c = item->GetNumWorkUnits();
 	for ( int i = 0 ; i < c; ++i )
 	{
 		CCloseCaptionWorkUnit *wu = item->GetWorkUnit( i );
 		wu->Dump();
 	}
+#endif // HOE_DLL
 }
 
 void CHudCloseCaption::DrawStream( wrect_t &rcText, wrect_t &rcWindow, CCloseCaptionItem *item, int iFadeLine, float flFadeLineAlpha )
 {
+#ifdef HOE_DLL
+
+#if 1
+	if ( item->GetNumLines() > 1 )
+	{
+		// For multiline items, highlight the "current" playing line based on display time.
+		float flTimePerLine = item->GetInitialLifeSpan() / item->GetNumLines();
+		int iFocusLine = floor((item->GetInitialLifeSpan() - item->GetTimeToLive()) / flTimePerLine);
+		iFocusLine = clamp( iFocusLine, 0, item->GetNumLines() - 1 );
+		wrect_t rcFocus = rcText;
+		CCloseCaptionLine *line = item->GetLine( iFocusLine );
+		rcFocus.top += line->GetTop();
+		rcFocus.bottom = rcFocus.top + line->GetHeight();
+		if ( rcFocus.top >= rcWindow.top && rcFocus.bottom <= rcWindow.bottom )
+		{
+			vgui::surface()->DrawSetColor( Color( 128, 128, 128, 64 ) );
+			vgui::surface()->DrawFilledRect( rcFocus.left, rcFocus.top, rcFocus.right, rcFocus.bottom );
+
+			// Draw an outline around all the lines
+			vgui::surface()->DrawSetColor( Color( 255, 255, 255, 64 ) );
+			vgui::surface()->DrawOutlinedRect( rcWindow.left - CC_INSET - GetIconSize(),
+				rcWindow.top, rcWindow.right + CC_INSET, rcWindow.bottom );
+		}
+	}
+
+	// Center the lines vertically in case the icon is taller than the text.
+	int iTextOffsetY = 0;
+	int iTextHeight = item->GetNumLines() * m_nLineHeight;
+	if ( iTextHeight < rcText.bottom - rcText.top )
+		iTextOffsetY = ((rcText.bottom - rcText.top) - iTextHeight) / 2;
+#endif
+
+
+	wrect_t rcOut;
+
+	float alpha = item->GetAlpha( m_flItemHiddenTime, m_flItemFadeInTime, m_flItemFadeOutTime );
+
+	int numLines = item->GetNumLines();
+	for ( int i = 0; i < numLines; ++i )
+	{
+		CCloseCaptionLine *line = item->GetLine( i );
+
+		int numUnits = line->GetNumWorkUnits();
+		for ( int j = 0; j < numUnits; ++j )
+		{
+			CCloseCaptionWorkUnit *wu = line->GetWorkUnit( j );
+
+			int x, y;
+#else // HOE_DLL
 	int c = item->GetNumWorkUnits();
 
 	wrect_t rcOut;
@@ -1869,7 +2500,7 @@ void CHudCloseCaption::DrawStream( wrect_t &rcText, wrect_t &rcWindow, CCloseCap
 		int y = 0;
 
 		CCloseCaptionWorkUnit *wu = item->GetWorkUnit( i );
-	
+#endif // HOE_DLL
 		vgui::HFont useF = wu->GetFont();
 
 		wu->GetPos( x, y );
@@ -1877,6 +2508,9 @@ void CHudCloseCaption::DrawStream( wrect_t &rcText, wrect_t &rcWindow, CCloseCap
 		rcOut.left = rcText.left + x + 3;
 		rcOut.right = rcOut.left + wu->GetWidth();
 		rcOut.top = rcText.top + y;
+#ifdef HOE_DLL
+		rcOut.top += iTextOffsetY;
+#endif
    		rcOut.bottom = rcOut.top + wu->GetHeight();
 
 		// Adjust alpha to handle fade in/out at the top & bottom of the element.
@@ -1886,7 +2520,11 @@ void CHudCloseCaption::DrawStream( wrect_t &rcText, wrect_t &rcWindow, CCloseCap
 		{
 			flLineAlpha *= flFadeLineAlpha;
 		}
+#ifdef HOE_DLL
+		else if ( rcOut.top < rcWindow.top || rcOut.bottom > rcWindow.bottom )
+#else // HOE_DLL
 		else if ( rcOut.top < rcWindow.top )
+#endif // HOE_DLL
 		{
 			// We're off the top of the element, so don't draw
 			continue;
@@ -1919,6 +2557,9 @@ void CHudCloseCaption::DrawStream( wrect_t &rcText, wrect_t &rcWindow, CCloseCap
 		vgui::surface()->DrawSetTextColor( useColor );
 		vgui::surface()->DrawPrintText( wu->GetStream(), wcslen( wu->GetStream() ) );
 	}
+#ifdef HOE_DLL
+	}
+#endif // HOE_DLL
 }
 
 bool CHudCloseCaption::GetNoRepeatValue( const wchar_t *caption, float &retval )
@@ -1984,6 +2625,10 @@ public:
 		m_bIsStream( false ),
 		m_bFromPlayer( false )
 	{
+#ifdef HOE_DLL
+		m_szImageName[0] = '\0';
+		m_nCaptionID = 0;
+#endif // HOE_DLL
 	}
 
 	~CAsyncCaption()
@@ -2021,6 +2666,11 @@ public:
 			caption_t *caption = m_Tokens[ i ];
 			if ( caption->stream != NULL )
 				continue;
+
+#ifdef HOE_DLL // BUG IN SDK ???
+			if ( caption->fileindex != nFileIndex )
+				continue;
+#endif // HOE_DLL
 
 			// Lookup the data
 			CaptionLookup_t &entry = directories[ nFileIndex ].m_CaptionDirectory[ caption->dirindex ];
@@ -2103,6 +2753,37 @@ public:
 		m_bIsStream = state;
 	}
 
+#ifdef HOE_DLL
+	void SetImageName( const char *imagename )
+	{
+		if ( imagename == NULL )
+			return;
+		Q_strncpy( m_szImageName, imagename, sizeof(m_szImageName) );
+	}
+	const char *GetImageName( void ) const
+	{
+		return m_szImageName;
+	}
+	char m_szImageName[128];
+
+	const ClosedCaptionInfo_t *GetInfo( void ) const
+	{
+		return m_pInfo;
+	}
+	const ClosedCaptionInfo_t *m_pInfo;
+
+	void SetCaptionID( short id )
+	{
+		m_nCaptionID = id;
+	}
+	short GetCaptionID( void ) const
+	{
+		return m_nCaptionID;
+	}
+	short m_nCaptionID;
+
+#endif // HOE_DLL
+
 	void	AddRandomToken( CUtlVector< AsyncCaption_t >& directories )
 	{
 		int dc = directories.Count();
@@ -2151,6 +2832,13 @@ public:
 		caption->dirindex = idx;
 		caption->stream = NULL;
 		caption->fileindex = i;
+
+#ifdef HOE_DLL
+		if ( m_Tokens.Count() == 0 )
+		{
+			m_pInfo = closedcaptionsinfo->GetCaptionInfo( token );
+		}
+#endif // HOE_DLL
 
 		m_Tokens.AddToTail( caption );
 		return true;
@@ -2283,11 +2971,19 @@ void CHudCloseCaption::ProcessAsyncWork()
 			// Process it now
 			if ( item->IsStream() )
 			{
+#ifdef HOE_DLL
+				_ProcessSentenceCaptionStream( item->Count(), original, item->GetImageName(), item->GetCaptionID(), item->GetInfo(), stream );
+			}
+			else
+			{
+				_ProcessCaption( stream, original, item->GetImageName(), item->GetCaptionID(), item->GetInfo(), item->GetDuration(), item->IsFromPlayer(), item->IsDirect() );
+#else // HOE_DLL
 				_ProcessSentenceCaptionStream( item->Count(), original, stream );
 			}
 			else
 			{
 				_ProcessCaption( stream, original, item->GetDuration(), item->IsFromPlayer(), item->IsDirect() );
+#endif // HOE_DLL
 			}
 		}
 
@@ -2310,7 +3006,11 @@ void CHudCloseCaption::ClearAsyncWork()
 
 extern void Hack_FixEscapeChars( char *str );
 
+#ifdef HOE_DLL
+void CHudCloseCaption::ProcessCaptionDirect( const char *tokenname, const char *imagename, float duration, bool fromplayer /* = false */ )
+#else // HOE_DLL
 void CHudCloseCaption::ProcessCaptionDirect( const char *tokenname, float duration, bool fromplayer /* = false */ )
+#endif // HOE_DLL
 {
 	m_bVisibleDueToDirect = true;
 
@@ -2321,7 +3021,11 @@ void CHudCloseCaption::ProcessCaptionDirect( const char *tokenname, float durati
 		Hack_FixEscapeChars( token );
 	}
 
+#ifdef HOE_DLL
+	ProcessCaption( token, imagename, duration, fromplayer, true );
+#else // HOE_DLL
 	ProcessCaption( token, duration, fromplayer, true );
+#endif // HOE_DLL
 }
 
 void CHudCloseCaption::PlayRandomCaption()
@@ -2335,13 +3039,21 @@ void CHudCloseCaption::PlayRandomCaption()
 	m_AsyncWork.AddToTail( async );
 }
 
+#ifdef HOE_DLL
+bool CHudCloseCaption::AddAsyncWork( const char *tokenstream, const char *imagename, short id, bool bIsStream, float duration, bool fromplayer, bool direct /* = false */ )
+#else // HOE_DLL
 bool CHudCloseCaption::AddAsyncWork( const char *tokenstream, bool bIsStream, float duration, bool fromplayer, bool direct /* = false */ )
+#endif // HOE_DLL
 {
 	bool bret = true;
 
 	CAsyncCaption *async = new CAsyncCaption();
 	async->SetIsStream( bIsStream );
 	async->SetDirect( direct );
+#ifdef HOE_DLL
+	async->SetImageName( imagename );
+	async->SetCaptionID( id );
+#endif // HOE_DLL
 	if ( !bIsStream )
 	{
 		bret = async->AddToken
@@ -2383,7 +3095,11 @@ bool CHudCloseCaption::AddAsyncWork( const char *tokenstream, bool bIsStream, fl
 }
 
 
+#ifdef HOE_DLL
+void CHudCloseCaption::ProcessSentenceCaptionStream( const char *tokenstream, const char *imagename, short id )
+#else // HOE_DLL
 void CHudCloseCaption::ProcessSentenceCaptionStream( const char *tokenstream )
+#endif // HOE_DLL
 {
 	float interval = cc_sentencecaptionnorepeat.GetFloat();
 	interval = clamp( interval, 0.1f, 60.0f );
@@ -2424,9 +3140,27 @@ void CHudCloseCaption::ProcessSentenceCaptionStream( const char *tokenstream )
 		}
 	}
 
+#ifdef HOE_DLL
+	AddAsyncWork( tokenstream, imagename, id, true, 0.0f, false );
+#else // HOE_DLL
 	AddAsyncWork( tokenstream, true, 0.0f, false );
+#endif // HOE_DLL
 }
 
+#ifdef HOE_DLL
+void CHudCloseCaption::_ProcessSentenceCaptionStream( int wordCount, const char *tokenstream, const char *imagename, short id, const ClosedCaptionInfo_t *pInfo, const wchar_t *caption_full )
+{
+	if ( wcslen( caption_full ) > 0 )
+	{
+		Process( caption_full, ( wordCount + 1 ) * 0.75f, tokenstream, imagename, id, pInfo, false /*never from player!*/ );
+	}
+}
+
+bool CHudCloseCaption::ProcessCaption( const char *tokenname, const char *imagename, short id, float duration, bool fromplayer /* = false */, bool direct /* = false */ )
+{
+	return AddAsyncWork( tokenname, imagename, id, false, duration, fromplayer, direct );
+}
+#else // HOE_DLL
 void CHudCloseCaption::_ProcessSentenceCaptionStream( int wordCount, const char *tokenstream, const wchar_t *caption_full )
 {
 	if ( wcslen( caption_full ) > 0 )
@@ -2439,8 +3173,13 @@ bool CHudCloseCaption::ProcessCaption( const char *tokenname, float duration, bo
 {
 	return AddAsyncWork( tokenname, false, duration, fromplayer, direct );
 }
+#endif // HOE_DLL
 
+#ifdef HOE_DLL
+void CHudCloseCaption::_ProcessCaption( const wchar_t *caption, const char *tokenname, const char *imagename, short id, const ClosedCaptionInfo_t *pInfo, float duration, bool fromplayer, bool direct )
+#else // HOE_DLL
 void CHudCloseCaption::_ProcessCaption( const wchar_t *caption, const char *tokenname, float duration, bool fromplayer, bool direct )
+#endif // HOE_DLL
 {
 	// Get the string for the token
 	float interval = 0.0f;
@@ -2481,7 +3220,11 @@ void CHudCloseCaption::_ProcessCaption( const wchar_t *caption, const char *toke
 		entry.m_nLastEmitTick = gpGlobals->tickcount;
 	}
 
+#ifdef HOE_DLL
+	Process( caption, duration, tokenname, imagename, id, pInfo, fromplayer, direct );
+#else // HOE_DLL
 	Process( caption, duration, tokenname, fromplayer, direct );
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -2494,6 +3237,11 @@ void CHudCloseCaption::MsgFunc_CloseCaption(bf_read &msg)
 {
 	char tokenname[ 512 ];
 	msg.ReadString( tokenname, sizeof( tokenname ) );
+#ifdef HOE_DLL
+	char imagename[ 512 ];
+	msg.ReadString( imagename, sizeof( imagename ) );
+	short id = msg.ReadShort();
+#endif // HOE_DLL
 	float duration = msg.ReadShort() * 0.1f;
 	byte flagbyte = msg.ReadByte();
 	bool warnonmissing = flagbyte & CLOSE_CAPTION_WARNIFMISSING ? true : false;
@@ -2515,14 +3263,59 @@ void CHudCloseCaption::MsgFunc_CloseCaption(bf_read &msg)
 	{
 		Q_snprintf( szTestName, sizeof( szTestName ), "%s_%s", tokenname, bIsMale ? "male" : "female" );
 		// If the gender-ified version exists, use it, otherwise fall through and pass the non-gender string to the cc system for processing
+#ifdef HOE_DLL
+		if ( ProcessCaption( szTestName, imagename, id, duration, fromplayer ) )
+#else // HOE_DLL
 		if ( ProcessCaption( szTestName , duration, fromplayer ) )
+#endif // HOE_DLL
 		{
 			return;
 		}
 	}
 
+#ifdef HOE_DLL
+	ProcessCaption( tokenname, imagename, id, duration, fromplayer );	
+#else // HOE_DLL
 	ProcessCaption( tokenname, duration, fromplayer );	
+#endif // HOE_DLL
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CHudCloseCaption::MsgFunc_RescindClosedCaption(bf_read &msg)
+{
+	short id = msg.ReadShort();
+
+	DevMsg( "RescindClosedCaption %i\n", id );
+
+	for ( int i = m_AsyncWork.Head(); i != m_AsyncWork.InvalidIndex(); )
+	{
+		int n = m_AsyncWork.Next( i );
+
+		CAsyncCaption *item = m_AsyncWork[ i ];
+		if ( item->GetCaptionID() == id )
+		{
+			delete item;
+			m_AsyncWork.Remove( i );
+		}
+
+		i = n;
+	}
+
+	int c = m_Items.Count();
+	for ( int i = 0; i < c; i++ )
+	{
+		CCloseCaptionItem *item =  m_Items[i];
+		if ( item->GetCaptionID() == id )
+		{
+			delete item; // FIXME: fade out or something...
+			m_Items.Remove( i );
+			--i;
+			--c;
+		}
+	}
+}
+#endif // HOE_DLL
 
 int CHudCloseCaption::GetFontNumber( bool bold, bool italic )
 {
@@ -2552,10 +3345,17 @@ void CHudCloseCaption::Flush()
 	g_AsyncCaptionResourceManager.Flush();
 }
 
+#ifdef HOE_DLL
+void CHudCloseCaption::InitCaptionDictionary( char const *dbfile, bool bForce )
+{
+	if ( !bForce && m_CurrentLanguage.IsValid() && !Q_stricmp( m_CurrentLanguage.String(), dbfile ) )
+		return;
+#else // HOE_DLL
 void CHudCloseCaption::InitCaptionDictionary( const char *dbfile )
 {
 	if ( m_CurrentLanguage.IsValid() && !Q_stricmp( m_CurrentLanguage.String(), dbfile ) )
 		return;
+#endif // HOE_DLL
 
 	m_CurrentLanguage = dbfile;
 
@@ -2695,7 +3495,11 @@ CON_COMMAND_F_COMPLETION( cc_emit, "Emits a closed caption", 0, EmitCaptionCompl
 	CHudCloseCaption *hudCloseCaption = GET_HUDELEMENT( CHudCloseCaption );
 	if ( hudCloseCaption )
 	{
+#ifdef HOE_DLL
+		hudCloseCaption->ProcessCaption( args[1], "", 0, 5.0f );	
+#else // HOE_DLL
 		hudCloseCaption->ProcessCaption( args[1], 5.0f );	
+#endif // HOE_DLL
 	}
 }
 
@@ -2797,6 +3601,22 @@ void OnCaptionLanguageChanged( IConVar *pConVar, const char *pOldString, float f
 
 
 ConVar cc_lang( "cc_lang", "", FCVAR_ARCHIVE, "Current close caption language (emtpy = use game UI language)", OnCaptionLanguageChanged );
+
+#ifdef HOE_DLL
+CON_COMMAND( cc_reload, "HOE: reload the close caption file(s)." )
+{
+	char uilanguage[ 64 ];
+	engine->GetUILanguage( uilanguage, sizeof( uilanguage ) );
+
+	CHudCloseCaption *hudCloseCaption = GET_HUDELEMENT( CHudCloseCaption );
+	if ( hudCloseCaption )
+	{
+		char dbfile [ 512 ];
+		Q_snprintf( dbfile, sizeof( dbfile ), "resource/closecaption_%s.dat", uilanguage );
+		hudCloseCaption->InitCaptionDictionary( dbfile, true );
+	}
+}
+#endif // HOE_DLL
 
 CON_COMMAND( cc_findsound, "Searches for soundname which emits specified text." )
 {
@@ -2908,3 +3728,49 @@ void CHudCloseCaption::FindSound( char const *pchANSI )
 		delete[] block;
 	}
 }
+
+#ifdef HOE_DLL
+int CHudCloseCaption::ComputeHeightOfItems( CUtlVector< CCloseCaptionItem *>& items )
+{
+	int c = items.Count();
+	int iTotalHeight = 0;
+
+	for ( int i = 0; i < c; i++ )
+	{
+		CCloseCaptionItem *item = items[i];
+		int iItemHeight = item->GetDisplayLines() * m_nLineHeight; // FIXME: get height of displayed lines
+		if ( item->GetIcon() )
+			iItemHeight = max( iItemHeight, GetIconSize() );
+		item->SetDisplayHeight( iItemHeight );
+		iTotalHeight += iItemHeight;
+	}
+
+	return iTotalHeight;
+}
+
+bool CHudCloseCaption::CollapseDisplayItems( CUtlVector< CCloseCaptionItem *>& items, int& nAttempt )
+{
+	int c = items.Count();
+	bool tryAgain = false;
+
+	for ( int i = 0; i < c; i++ )
+	{
+		CCloseCaptionItem *item = items[i];
+		if ( item->GetDisplayLines() > 1 )
+		{
+			if ( item->GetCollapsedLines() < nAttempt )
+			{
+				item->SetDisplayLines( item->GetDisplayLines() - 1 );
+				item->SetCollapsedLines( item->GetCollapsedLines() + 1 );
+				return true;
+			}
+			tryAgain = true;
+		}
+	}
+
+	if ( tryAgain )
+		return CollapseDisplayItems( items, ++nAttempt );
+
+	return false;
+}
+#endif // HOE_DLL

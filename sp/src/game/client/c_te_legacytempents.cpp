@@ -1056,6 +1056,10 @@ void CTempEnts::BreakModel( const Vector &pos, const QAngle &angles, const Vecto
 		}
 
 		pTemp->flags |= FTENT_COLLIDEWORLD | FTENT_FADEOUT | FTENT_SLOWGRAVITY;
+#ifdef HOE_DLL
+		pTemp->flags &= ~FTENT_SLOWGRAVITY;
+		pTemp->flags |= FTENT_GRAVITY;
+#endif
 
 		if ( random->RandomInt(0,255) < 200 ) 
 		{
@@ -1655,7 +1659,11 @@ void CTempEnts::EjectBrass( const Vector &pos1, const QAngle &angles, const QAng
 		return;
 
 	//Keep track of shell type
+#ifdef HOE_DLL
+	if ( type == 2 || type == 3 || type == 4 ) // shotgun, hoe buckshot, hoe elephantshot
+#else // HOE_DLL
 	if ( type == 2 )
+#endif // HOE_DLL
 	{
 		pTemp->hitSound = BOUNCE_SHOTSHELL;
 	}
@@ -2405,6 +2413,12 @@ void CTempEnts::LevelInit()
 	m_pShells[0] = (model_t *) engine->LoadModel( "models/weapons/shell.mdl" );
 	m_pShells[1] = (model_t *) engine->LoadModel( "models/weapons/rifleshell.mdl" );
 	m_pShells[2] = (model_t *) engine->LoadModel( "models/weapons/shotgun_shell.mdl" );
+
+#ifdef HOE_DLL
+	m_pShells[3] = (model_t *) engine->LoadModel( "models/870/shotgunshell2/shotgunshell.mdl" );
+	m_pShells[4] = (model_t *) engine->LoadModel( "models/870/elephantshell2/elephantshell.mdl" );
+#endif // HOE_DLL
+
 #endif
 
 #if defined( HL1_CLIENT_DLL )
@@ -2443,6 +2457,10 @@ void CTempEnts::Init (void)
 	m_pShells[0] = NULL;
 	m_pShells[1] = NULL;
 	m_pShells[2] = NULL;
+#ifdef HOE_DLL
+	m_pShells[3] = NULL;
+	m_pShells[4] = NULL;
+#endif // HOE_DLL
 
 #if defined( HL1_CLIENT_DLL )
 	m_pHL1Shell			= NULL;

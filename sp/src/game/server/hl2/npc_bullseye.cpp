@@ -90,6 +90,9 @@ BEGIN_DATADESC( CNPC_Bullseye )
 	DEFINE_KEYFIELD( m_flFieldOfView, FIELD_FLOAT, "minangle" ),
 	DEFINE_KEYFIELD( m_flMinDistValidEnemy, FIELD_FLOAT, "mindist" ),
 	// DEFINE_FIELD( m_bPerfectAccuracy, FIELD_BOOLEAN ),	// Don't save
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_flLifeTime, FIELD_TIME ),
+#endif // HOE_DLL
 
 	// Function Pointers
 	DEFINE_THINKFUNC( BullseyeThink ),
@@ -117,6 +120,9 @@ CNPC_Bullseye::CNPC_Bullseye( void )
 	g_BullseyeList.AddToList( this );
 	m_flFieldOfView = 360;
 	m_flMinDistValidEnemy = 0;
+#ifdef HOE_DLL
+	m_flLifeTime = 0;
+#endif // HOE_DLL
 }
 
 CNPC_Bullseye::~CNPC_Bullseye( void )
@@ -332,6 +338,14 @@ void CNPC_Bullseye::OnRestore( void )
 	BaseClass::OnRestore();
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CNPC_Bullseye::SetLifetime( float flLifeTime )
+{
+	m_flLifeTime = gpGlobals->curtime + flLifeTime;
+}
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -339,6 +353,17 @@ void CNPC_Bullseye::BullseyeThink( void )
 {
 	ClearCondition( COND_LIGHT_DAMAGE  );
 	ClearCondition( COND_HEAVY_DAMAGE );
+
+#ifdef HOE_DLL
+	// CAI_BaseNPC::CreateCustomTarget sent a SetHealth event but that event
+	// does not cross level transitions.
+	if ( m_flLifeTime != 0 && gpGlobals->curtime > m_flLifeTime )
+	{
+		TakeDamage( CTakeDamageInfo( this, this, GetHealth(), DMG_GENERIC ) );
+	}
+
+	SetNextThink( gpGlobals->curtime + 0.1f ); // BUG in SDK?
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------

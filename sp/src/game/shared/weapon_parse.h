@@ -125,6 +125,24 @@ public:
 	CHudTexture 					*iconZoomedAutoaim;
 	CHudTexture						*iconSmall;
 
+#ifdef HOE_DLL
+	Vector							WeaponSelectionHUD_Origin;
+	QAngle							WeaponSelectionHUD_Angles;
+	char							WeaponSelectionHUD_Model[MAX_WEAPON_STRING];
+	char							WeaponSelectionHUD_Anim[MAX_WEAPON_STRING];
+#endif // HOE_DLL
+
+#ifdef HOE_VIEWMODEL_FUDGE
+	Vector							ViewModelFudge_Origin;
+#endif // HOE_VIEWMODEL_FUDGE
+
+#ifdef HOE_IRONSIGHTS
+	bool							IronSights_Available;
+	Vector							IronSights_Origin;
+	QAngle							IronSights_Angles;
+	int								IronSights_FOV;
+#endif // HOE_IRONSIGHTS
+
 // TF2 specific
 	bool					bShowUsageHint;							// if true, then when you receive the weapon, show a hint about it
 

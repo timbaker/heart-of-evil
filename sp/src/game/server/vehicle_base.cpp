@@ -1119,8 +1119,20 @@ void CFourWheelServerVehicle::InitViewSmoothing( const Vector &vecOrigin, const 
 	m_ViewSmoothing.bWasRunningAnim = false;
 	m_ViewSmoothing.vecOriginSaved = vecOrigin;
 	m_ViewSmoothing.vecAnglesSaved = vecAngles;
+#ifdef HOE_DLL
+	m_ViewSmoothing.flFOV = GetVehicleFOV();
+#else
 	m_ViewSmoothing.flFOV = r_JeepFOV.GetFloat();
+#endif
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+float CFourWheelServerVehicle::GetVehicleFOV( void )
+{
+	return r_JeepFOV.GetFloat();
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -1315,8 +1327,15 @@ void CFourWheelServerVehicle::NPC_DriveVehicle( void )
 	m_nPrevNPCButtons = m_nNPCButtons;
 
 	// NPC's cheat by using analog steering.
+#ifdef HOE_DLL
+	float flTurnDegrees = GetFourWheelVehiclePhysics()->GetSteeringDegrees();
+	Assert(flTurnDegrees > 0);
+	float flSteering = m_flTurnDegrees / flTurnDegrees;
+	flSteering = clamp( flSteering, -1.0f, 1.0f );
+	GetFourWheelVehiclePhysics()->SetSteering( flSteering, 0 );
+#else
 	GetFourWheelVehiclePhysics()->SetSteering( m_flTurnDegrees, 0 );
-
+#endif
 	// Clear out attack buttons each frame
 	m_nNPCButtons &= ~IN_ATTACK;
 	m_nNPCButtons &= ~IN_ATTACK2;

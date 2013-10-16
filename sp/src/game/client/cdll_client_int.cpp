@@ -2407,13 +2407,23 @@ void CHLClient::EmitSentenceCloseCaption( char const *tokenstream )
 	CHudCloseCaption *hudCloseCaption = GET_HUDELEMENT( CHudCloseCaption );
 	if ( hudCloseCaption )
 	{
+#ifdef HOE_DLL
+		hudCloseCaption->ProcessSentenceCaptionStream( tokenstream, "", 0 );
+#else // HOE_DLL
 		hudCloseCaption->ProcessSentenceCaptionStream( tokenstream );
+#endif // HOE_DLL
 	}
 }
 
 
 void CHLClient::EmitCloseCaption( char const *captionname, float duration )
 {
+#ifdef HOE_DLL
+	// The engine.dll calls this when the server calls enginesound->EmitSentenceByIndex.
+	// We don't know which entity is playing the sentence and can't get its CC icon.
+	// So now the server parses sentences.txt and sends the caption to the client.
+	return; ///////////////////////////////////////////
+#else // HOE_DLL
 	extern ConVar closecaption;
 
 	if ( !closecaption.GetBool() )
@@ -2424,6 +2434,7 @@ void CHLClient::EmitCloseCaption( char const *captionname, float duration )
 	{
 		hudCloseCaption->ProcessCaption( captionname, duration );
 	}
+#endif // HOE_DLL
 }
 
 CStandardRecvProxies* CHLClient::GetStandardRecvProxies()

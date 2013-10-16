@@ -163,7 +163,11 @@ BEGIN_DATADESC( CBaseAnimating )
 
 	DEFINE_INPUT( m_nSkin, FIELD_INTEGER, "skin" ),
 	DEFINE_KEYFIELD( m_nBody, FIELD_INTEGER, "body" ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_STRING, "SetBodygroup", InputSetBodygroup ),
+#else // HOE_DLL
 	DEFINE_INPUT( m_nBody, FIELD_INTEGER, "SetBodyGroup" ),
+#endif // HOE_DLL
 	DEFINE_KEYFIELD( m_nHitboxSet, FIELD_INTEGER, "hitboxset" ),
 	DEFINE_KEYFIELD( m_nSequence, FIELD_INTEGER, "sequence" ),
 	DEFINE_ARRAY( m_flPoseParameter, FIELD_FLOAT, CBaseAnimating::NUM_POSEPAREMETERS ),
@@ -1174,6 +1178,40 @@ void CBaseAnimating::HandleAnimEvent( animevent_t *pEvent )
 			return;
 		}
 #endif
+#ifdef HOE_DLL
+		// Copied from AE_CL_BODYGROUP_SET_VALUE which only works if the entity
+		// is client-side only.
+		else if ( pEvent->event == AE_SV_BODYGROUP_SET_VALUE )
+		{
+			char szBodygroupName[256];
+			int value = 0;
+
+			char token[256];
+
+			const char *p = pEvent->options;
+
+			// Bodygroup Name
+			p = nexttoken(token, p, ' ');
+			if ( token[0] ) // BUG IN SDK: was "if (token)" which is always true
+			{
+				Q_strncpy( szBodygroupName, token, sizeof(szBodygroupName) );
+			}
+
+			// Get the desired value
+			p = nexttoken(token, p, ' ');
+			if ( token[0] ) // BUG IN SDK: was "if (token)" which is always true
+			{
+				value = atoi( token );
+			}
+
+			int index = FindBodygroupByName( szBodygroupName );
+			if ( index >= 0 )
+			{
+				SetBodygroup( index, value );
+			}
+			return;
+		}
+#endif
 	}
 
 	// Failed to find a handler
@@ -2157,6 +2195,74 @@ int CBaseAnimating::GetNumBodyGroups( void )
 	Assert( IsDynamicModelLoading() || GetModelPtr() );
 	return IsDynamicModelLoading() ? 0 : ::GetNumBodyGroups( GetModelPtr( ) );
 }
+
+#ifdef HOE_DLL
+void CBaseAnimating::InputSetBodygroup( inputdata_t &inputdata )
+{
+	const char *s = inputdata.value.String();
+
+	char *pstr, *pfront, tempString[128];
+	char *tokens[2] = { NULL, NULL };
+	bool isInt[2] = { true, true };
+	int	j;
+
+	Q_strncpy( tempString, s, sizeof(tempString) );
+	pstr = pfront = tempString;
+
+	for ( j = 0; j < 2; j++ )
+	{
+		// skip whitespace
+		while ( *pstr == ' ' )
+			pstr++;
+
+		pfront = pstr;
+
+		// skip to end of non-whitespace chars
+		while ( *pstr && *pstr != ' ' )
+		{
+			if ( *pstr < '0' || *pstr > '9' )
+				isInt[j] = false;
+			pstr++;
+		}
+
+		// save token is non-empty string
+		if ( pstr > pfront )
+			tokens[j] = pfront;
+
+		if ( !*pstr )
+			break;
+
+		*pstr = '\0';
+		pstr++;
+	}
+
+	if (!tokens[0] ||
+		(!tokens[0] && !tokens[1]) ||
+		(!tokens[1] && !isInt[0]) ||
+		(tokens[1] && !isInt[1]) )
+	{
+		DevWarning( "expected \"integer\" or \"bodygroup integer\" but got \"%s\"\n", s );
+		return;
+	}
+
+	// Original behavior was setting m_nBody directly with an integer value.
+	if ( !tokens[1] )
+	{
+		m_nBody = atoi( tokens[0] );
+		return;
+	}
+
+	int bg = FindBodygroupByName( tokens[0] );
+	if ( bg == -1 )
+	{
+		DevWarning( "no such bodygroup \"%s\"\n", tokens[0] );
+		return;
+	}
+
+	SetBodygroup( bg, atoi( tokens[1] ) );
+
+}
+#endif // HOE_DLL
 
 int CBaseAnimating::ExtractBbox( int sequence, Vector& mins, Vector& maxs )
 {

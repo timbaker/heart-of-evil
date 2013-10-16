@@ -12,6 +12,16 @@
 #include "in_buttons.h"
 #include "collisionutils.h"
 
+#ifdef HOE_THIRDPERSON
+#include "c_basetempentity.h"
+#include "prediction.h"
+#include "tempent.h" // laser dot
+#include "view.h" // laser dot
+#include "bone_setup.h"
+#include "dlight.h" // flashlight elight
+#include "iefx.h" // flashlight elight
+#endif // HOE_THIRDPERSON
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -66,7 +76,23 @@ C_BaseHLPlayer::C_BaseHLPlayer()
 	m_flZoomRate		= 0.0f;
 	m_flZoomStartTime	= 0.0f;
 	m_flSpeedMod		= cl_forwardspeed.GetFloat();
+
+#ifdef HOE_THIRDPERSON
+	m_PlayerAnimState = CreateHL2MPPlayerAnimState( this );
+
+	// BUG? m_bClientSideAnimation hasn't come down from server when AddBaseAnimatingInterpolatedVars()
+	// gets called in the C_BaseAnimating() constructor.
+	// constructor.
+	UseClientSideAnimation();
+#endif // HOE_THIRDPERSON
 }
+
+#ifdef HOE_THIRDPERSON
+C_BaseHLPlayer::~C_BaseHLPlayer()
+{
+	m_PlayerAnimState->Release();
+}
+#endif // HOE_THIRDPERSON
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -162,6 +188,92 @@ int C_BaseHLPlayer::DrawModel( int flags )
 	SetLocalAngles( useAngles );
 
 	int iret = BaseClass::DrawModel( flags );
+
+#ifdef HOE_THIRDPERSON // HOE: beam to show aim
+	if( this == C_BasePlayer::GetLocalPlayer() )
+	{
+#if 0
+		if( !m_pAimBeam )
+		{
+			BeamInfo_t beamInfo;
+
+			beamInfo.m_vecStart = EyePosition();
+			beamInfo.m_vecEnd = EyePosition() + Vector(100);
+
+			beamInfo.m_pStartEnt = NULL;
+			beamInfo.m_pEndEnt = NULL;
+			beamInfo.m_nStartAttachment = 0;
+			beamInfo.m_nEndAttachment = 0;
+
+			beamInfo.m_pszModelName = "effects/bluelaser1.vmt";
+			beamInfo.m_pszHaloName = NULL; /*"sprites/light_glow03.vmt"*/;
+			beamInfo.m_flHaloScale = 16.0f;
+			beamInfo.m_flLife = 0.0f;
+			beamInfo.m_flWidth = 1;
+			beamInfo.m_flEndWidth = 1;
+			beamInfo.m_flFadeLength = 0.0f;
+			beamInfo.m_flAmplitude = 0;
+			beamInfo.m_flBrightness = 48.0;
+			beamInfo.m_flSpeed = 0.0;
+			beamInfo.m_nStartFrame = 0.0;
+			beamInfo.m_flFrameRate = 1.0f;
+
+			beamInfo.m_flRed = 255.0f;
+			beamInfo.m_flGreen = 255.0f;
+			beamInfo.m_flBlue = 255.0f;
+
+			beamInfo.m_nSegments = -1;
+			beamInfo.m_bRenderable = true;
+			beamInfo.m_nFlags = FBEAM_SHADEOUT|FBEAM_NOTILE|FBEAM_HALOBEAM;
+			
+			m_pAimBeam = beams->CreateBeamPoints( beamInfo );
+		}
+
+		if( m_pAimBeam )
+		{
+			BeamInfo_t beamInfo;
+			beamInfo.m_vecStart = Weapon_ShootPosition();
+
+			QAngle eyeAngles = EyeAngles();
+			Vector vForward;
+			AngleVectors( eyeAngles, &vForward );
+			beamInfo.m_vecEnd = beamInfo.m_vecStart + vForward * 512;
+
+			beamInfo.m_flRed = 255.0;
+			beamInfo.m_flGreen = 255.0;
+			beamInfo.m_flBlue = 255.0;
+
+			beams->UpdateBeamInfo( m_pAimBeam, beamInfo );
+		}
+#endif
+#if 0 // laser dot
+		if ( !m_pAimLaserDot )
+		{
+			m_pAimLaserDot = tempents->TempSprite( vec3_origin, vec3_origin, 0.5f,
+				modelinfo->GetModelIndex( "sprites/redglow1.vmt" ), kRenderTransAdd, 0,
+					1.0f, 1, FTENT_SPRANIMATE | FTENT_SPRANIMATELOOP | FTENT_NEVERDIE );
+		}
+		if ( m_pAimLaserDot )
+		{
+			QAngle eyeAngles = EyeAngles();
+			Vector vForward;
+			AngleVectors( eyeAngles, &vForward );
+//			VectorNormalize( vForward );
+			Vector vStart = Weapon_ShootPosition();
+			Vector vEnd = vStart + vForward * MAX_TRACE_LENGTH;
+			trace_t tr;
+			UTIL_TraceLine( vStart, vEnd, MASK_SOLID, this, COLLISION_GROUP_NONE, &tr );
+			m_pAimLaserDot->SetAbsOrigin( tr.endpos - 10 * vForward/* tr.plane.normal */ );
+//			m_pAimLaserDot->SetAbsAngles( CurrentViewAngles() );
+			float dist = (tr.endpos - vStart).Length();
+			float	scale = RemapVal( dist, 32, 1024, 0.01f, 0.5f );
+			float	scaleOffs = random->RandomFloat( -scale * 0.25f, scale * 0.25f );
+			scale = clamp( scale + scaleOffs, 0.1f, 32.0f );
+			m_pAimLaserDot->m_flSpriteScale = scale;
+		}
+#endif
+	}
+#endif
 
 	SetLocalAngles( saveAngles );
 
@@ -637,6 +749,404 @@ bool C_BaseHLPlayer::CreateMove( float flInputSampleTime, CUserCmd *pCmd )
 	return bResult;
 }
 
+#ifdef HOE_THIRDPERSON
+
+//=========================================================
+// Purpose: from input of 75% to 200% of maximum range, rescale smoothly from 75% to 100%
+//=========================================================
+// copied from CBaseAnimating
+float C_BaseHLPlayer::EdgeLimitPoseParameter( int iParameter, float flValue, float flBase )
+{
+	CStudioHdr *pstudiohdr = GetModelPtr( );
+	if ( !pstudiohdr )
+	{
+		return flValue;
+	}
+
+	if (iParameter < 0 || iParameter >= pstudiohdr->GetNumPoseParameters())
+	{
+		return flValue;
+	}
+
+	const mstudioposeparamdesc_t &Pose = pstudiohdr->pPoseParameter( iParameter );
+
+	if (Pose.loop || Pose.start == Pose.end)
+	{
+		return flValue;
+	}
+
+	return RangeCompressor( flValue, Pose.start, Pose.end, flBase );
+}
+
+//-----------------------------------------------------------------------------
+// copied from CBaseAnimating
+void C_BaseHLPlayer::UpdateLookAt( void )
+{
+	if ( gpGlobals->frametime == 0 ) return;
+
+	if ( m_headYawPoseParam < 0 || m_headPitchPoseParam < 0 )
+		return;
+	
+	if ( m_iAttachmentEyes < 0 || m_iAttachmentForward < 0 )
+		return;
+
+	// orient eyes
+	m_viewtarget = m_vLookAtTarget;
+
+#if 0
+	// blinking
+	if (m_blinkTimer.IsElapsed())
+	{
+		m_blinktoggle = !m_blinktoggle;
+		m_blinkTimer.Start( RandomFloat( 1.5f, 4.0f ) );
+	}
+#endif
+
+	matrix3x4_t eyesToWorld;
+	GetAttachment( m_iAttachmentEyes, eyesToWorld );
+	
+	matrix3x4_t forwardToWorld, worldToForward;
+	GetAttachment( m_iAttachmentForward, forwardToWorld );
+	MatrixInvert( forwardToWorld, worldToForward );
+
+	QAngle angBias( 0, 0, 0 );
+
+	// Figure out where we want to look in world space.
+	Vector to = m_vLookAtTarget - EyePosition();
+
+	matrix3x4_t targetXform;
+	targetXform = forwardToWorld;
+	Vector vTargetDir = m_vLookAtTarget - EyePosition();
+
+	float flHeadInfluence = 1.0f;
+
+	if ( 1 /*scene_clamplookat.GetBool()*/ )
+	{
+		// scale down pitch when the target is behind the head
+		Vector vTargetLocal;
+		VectorNormalize( vTargetDir );
+		VectorIRotate( vTargetDir, forwardToWorld, vTargetLocal );
+		vTargetLocal.z *= clamp( vTargetLocal.x, 0.1, 1.0 );
+		VectorNormalize( vTargetLocal );
+		VectorRotate( vTargetLocal, forwardToWorld, vTargetDir );
+
+		// clamp local influence when target is behind the head
+		flHeadInfluence = flHeadInfluence * clamp( vTargetLocal.x * 2.0 + 2.0, 0.0, 1.0 );
+	}
+
+	Studio_AlignIKMatrix( targetXform, vTargetDir );
+
+	matrix3x4_t headXform;
+	ConcatTransforms( worldToForward, targetXform, headXform );
+	QAngle vTargetAngles;
+	MatrixAngles( headXform, vTargetAngles );
+
+	// partially debounce head goal
+	float s0 = 1.0 - flHeadInfluence + 0.3/*GetHeadDebounce()*/ * flHeadInfluence;
+	float s1 = (1.0 - s0);
+
+	// limit velocity of head turns
+	m_goalHeadCorrection.x = Approach( m_goalHeadCorrection.x * s0 + vTargetAngles.x * s1, m_goalHeadCorrection.x, 10.0 );
+	m_goalHeadCorrection.y = Approach( m_goalHeadCorrection.y * s0 + vTargetAngles.y * s1, m_goalHeadCorrection.y, 30.0 );
+	m_goalHeadCorrection.z = Approach( m_goalHeadCorrection.z * s0 + vTargetAngles.z * s1, m_goalHeadCorrection.z, 10.0 );
+	
+	float flTarget;
+	float flLimit;
+
+	flTarget = m_goalHeadCorrection.y /*+ Get( m_FlexweightHeadRightLeft )*/;
+	flLimit = EdgeLimitPoseParameter( m_headYawPoseParam, flTarget, angBias.y );
+	SetPoseParameter( m_headYawPoseParam, flLimit );
+
+	flTarget = m_goalHeadCorrection.x /*+ Get( m_FlexweightHeadUpDown )*/;
+	flLimit = EdgeLimitPoseParameter( m_headPitchPoseParam, flTarget, angBias.x );
+	SetPoseParameter( m_headPitchPoseParam, flLimit );
+}
+
+void C_BaseHLPlayer::ClientThink( void )
+{
+	if ( gpGlobals->frametime == 0 ) return;
+
+	bool bFoundViewTarget = false;
+	
+	Vector vForward;
+#if 0
+	AngleVectors( GetRenderAngles(), &vForward ); 
+#else
+	AngleVectors( GetLocalAngles(), &vForward );
+
+	// FIXME: Coming back from main menu to game sometimes gives this...
+	if ( vForward == Vector(1,0,0) ) return;
+#endif
+	for( int iClient = 1; iClient <= gpGlobals->maxClients; ++iClient )
+	{
+		CBaseEntity *pEnt = UTIL_PlayerByIndex( iClient );
+		if(!pEnt || !pEnt->IsPlayer())
+			continue;
+
+		if ( pEnt->entindex() == entindex() )
+			continue;
+
+		Vector vTargetOrigin = pEnt->GetAbsOrigin();
+		Vector vMyOrigin =  GetAbsOrigin();
+
+		Vector vDir = vTargetOrigin - vMyOrigin;
+		
+		if ( vDir.Length() > 128 ) 
+			continue;
+
+		VectorNormalize( vDir );
+
+		if ( DotProduct( vForward, vDir ) < 0.0f )
+			 continue;
+
+		m_vLookAtTarget = pEnt->EyePosition();
+		bFoundViewTarget = true;
+		break;
+	}
+
+	if ( bFoundViewTarget == false )
+	{
+		m_vLookAtTarget = GetAbsOrigin() + vForward * 512;
+	}
+#if 0
+	UpdateIDTarget();
+
+	// Avoidance
+	if ( gpGlobals->curtime >= m_fNextThinkPushAway )
+	{
+		PerformObstaclePushaway( this );
+		m_fNextThinkPushAway =  gpGlobals->curtime + PUSHAWAY_THINK_INTERVAL;
+	}
+#endif
+
+	UpdateFlashlightElight();
+}
+
+//-----------------------------------------------------------------------------
+// Should this object receive shadows?
+//-----------------------------------------------------------------------------
+bool C_BaseHLPlayer::ShouldReceiveProjectedTextures( int flags )
+{
+	Assert( flags & SHADOW_FLAGS_PROJECTED_TEXTURE_TYPE_MASK );
+
+	if ( IsEffectActive( EF_NODRAW ) )
+		 return false;
+
+	if( flags & SHADOW_FLAGS_FLASHLIGHT )
+	{
+return false; // false==my own flashlight, true==chumtoad flashlight
+		return true;
+	}
+
+	return BaseClass::ShouldReceiveProjectedTextures( flags );
+}
+
+ShadowType_t C_BaseHLPlayer::ShadowCastType( void ) 
+{
+	if ( !IsVisible() )
+		 return SHADOWS_NONE;
+
+	return SHADOWS_RENDER_TO_TEXTURE_DYNAMIC;
+}
+
+const QAngle& C_BaseHLPlayer::GetRenderAngles()
+{
+	if ( IsRagdoll() )
+	{
+		return vec3_angle;
+	}
+	else
+	{
+		return m_PlayerAnimState->GetRenderAngles();
+	}
+}
+
+void C_BaseHLPlayer::UpdateClientSideAnimation()
+{
+	m_PlayerAnimState->Update( EyeAngles()[YAW], EyeAngles()[PITCH] );
+
+UpdateLookAt();
+
+	BaseClass::UpdateClientSideAnimation();
+}
+
+CStudioHdr *C_BaseHLPlayer::OnNewModel( void )
+{
+	CStudioHdr *hdr = BaseClass::OnNewModel();
+
+	InitializePoseParams();
+
+	m_iAttachmentEyes = LookupAttachment( "eyes" );
+	m_iAttachmentChest = -1; // not in player model
+	m_iAttachmentForward = LookupAttachment( "forward" );
+
+	// Reset the players animation states, gestures
+	if ( m_PlayerAnimState )
+	{
+		m_PlayerAnimState->OnNewModel();
+	}
+
+	return hdr;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Clear all pose parameters
+//-----------------------------------------------------------------------------
+void C_BaseHLPlayer::InitializePoseParams( void )
+{
+	m_headYawPoseParam = LookupPoseParameter( "head_yaw" );
+	GetPoseParameterRange( m_headYawPoseParam, m_headYawMin, m_headYawMax );
+
+	m_headPitchPoseParam = LookupPoseParameter( "head_pitch" );
+	GetPoseParameterRange( m_headPitchPoseParam, m_headPitchMin, m_headPitchMax );
+
+	CStudioHdr *hdr = GetModelPtr();
+	for ( int i = 0; i < hdr->GetNumPoseParameters() ; i++ )
+	{
+		SetPoseParameter( hdr, i, 0.0 );
+	}
+}
+// -------------------------------------------------------------------------------- //
+// Player animation event. Sent to the client when a player fires, jumps, reloads, etc..
+// -------------------------------------------------------------------------------- //
+
+class C_TEPlayerAnimEvent : public C_BaseTempEntity
+{
+public:
+	DECLARE_CLASS( C_TEPlayerAnimEvent, C_BaseTempEntity );
+	DECLARE_CLIENTCLASS();
+
+	virtual void PostDataUpdate( DataUpdateType_t updateType )
+	{
+		// Create the effect.
+		C_BaseHLPlayer *pPlayer = dynamic_cast< C_BaseHLPlayer* >( m_hPlayer.Get() );
+		if ( pPlayer && !pPlayer->IsDormant() )
+		{
+			pPlayer->DoAnimationEvent( (PlayerAnimEvent_t)m_iEvent.Get(), m_nData );
+		}	
+	}
+
+public:
+	CNetworkHandle( CBasePlayer, m_hPlayer );
+	CNetworkVar( int, m_iEvent );
+	CNetworkVar( int, m_nData );
+};
+
+IMPLEMENT_CLIENTCLASS_EVENT( C_TEPlayerAnimEvent, DT_TEPlayerAnimEvent, CTEPlayerAnimEvent );
+
+BEGIN_RECV_TABLE_NOBASE( C_TEPlayerAnimEvent, DT_TEPlayerAnimEvent )
+	RecvPropEHandle( RECVINFO( m_hPlayer ) ),
+	RecvPropInt( RECVINFO( m_iEvent ) ),
+	RecvPropInt( RECVINFO( m_nData ) )
+END_RECV_TABLE()
+
+void C_BaseHLPlayer::DoAnimationEvent( PlayerAnimEvent_t event, int nData )
+{
+	if ( IsLocalPlayer() )
+	{
+		if ( ( prediction->InPrediction() && !prediction->IsFirstTimePredicted() ) )
+			return;
+	}
+
+	MDLCACHE_CRITICAL_SECTION();
+	m_PlayerAnimState->DoAnimationEvent( event, nData );
+}
+
+void C_BaseHLPlayer::UpdateFlashlightElight( void )
+{
+	// The dim light is the flashlight.
+	if ( IsEffectActive( EF_DIMLIGHT ) )
+	{
+		if ( m_FlashlightElightKey == 0 )
+			StartFlashlightElight();
+	}
+	else
+	{
+		if ( m_FlashlightElightKey != 0 )
+			StopFlashlightElight();
+	}
+
+	// if the elight has gone away, bail out
+	if (m_FlashlightElightKey == 0)
+	{
+//		SetNextClientThink( CLIENT_THINK_NEVER );
+		return;
+	}
+
+	// get the elight
+	dlight_t * el = effects->GetElightByKey(m_FlashlightElightKey);
+	if (!el)
+	{
+		// the elight has been invalidated. bail out.
+		m_FlashlightElightKey = 0;
+
+//		SetNextClientThink( CLIENT_THINK_NEVER );
+		return;
+	}
+	else
+	{
+		Vector vecForward, vecRight, vecUp;
+		EyeVectors( &vecForward, &vecRight, &vecUp );
+
+		el->origin = WorldSpaceCenter() - vecForward * 32;
+
+		el->color.exponent = 3.0f;
+		el->radius = 6.0f * 12.0f;
+	}
+}
+
+void C_BaseHLPlayer::StartFlashlightElight( void )
+{
+	AssertMsg(m_FlashlightElightKey == 0 , "Advisor trying to create new elight on top of old one!");
+	if ( m_FlashlightElightKey != 0 )
+	{
+		Warning("Advisor tried to start his elight when it was already one.\n");
+	}
+	else
+	{
+		m_FlashlightElightKey = LIGHT_INDEX_TE_DYNAMIC + this->entindex();
+		dlight_t * el = effects->CL_AllocElight( m_FlashlightElightKey );
+
+		if ( el )
+		{
+			// create an elight on top of me
+			el->origin	= this->WorldSpaceCenter();
+
+			el->color.r = 235;
+			el->color.g = 255;
+			el->color.b = 255;
+			el->color.exponent = 3;
+
+			el->radius	= 52*12;
+			el->decay	= 0.0f;
+			el->die = gpGlobals->curtime + 2000.0f; // 1000 just means " a long time "
+
+//			SetNextClientThink( CLIENT_THINK_ALWAYS );
+		}
+		else
+		{	// null out the light value
+			m_FlashlightElightKey = 0;
+		}
+	}
+}
+
+void C_BaseHLPlayer::StopFlashlightElight( void )
+{
+	AssertMsg( m_FlashlightElightKey != 0, "Advisor tried to stop elight when none existed!");
+	dlight_t * el;
+	// note: the following conditional sets el if not short-circuited
+	if ( m_FlashlightElightKey == 0 || (el = effects->GetElightByKey(m_FlashlightElightKey)) == NULL ) 
+	{
+		Warning("Advisor tried to stop its elight when it had none.\n");
+	}
+	else
+	{
+		// kill the elight by setting the die value to now
+		el->die = gpGlobals->curtime;
+	}
+}
+
+#endif // HOE_THIRDPERSON
 
 //-----------------------------------------------------------------------------
 // Purpose: Input handling

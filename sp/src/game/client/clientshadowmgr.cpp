@@ -1523,6 +1523,12 @@ void CClientShadowMgr::LevelInitPreEntity()
 	unsigned char g = ambientColor[1] > 1.0 ? 255 : 255 * ambientColor[1];
 	unsigned char b = ambientColor[2] > 1.0 ? 255 : 255 * ambientColor[2];
 
+#ifdef HOE_DLL
+	// ambient color is often 255,255,255 which gives no visible shadow.
+	// FIXME: add shadow_control entity to each map
+	r = g = b = 100;
+#endif // HOE_DLL
+
 	SetShadowColor(r, g, b);
 
 	// Set up the texture allocator

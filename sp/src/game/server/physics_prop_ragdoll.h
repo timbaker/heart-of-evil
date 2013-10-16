@@ -107,6 +107,10 @@ public:
 
 	DECLARE_DATADESC();
 
+#ifdef HOE_DLL
+	CNetworkVar( EHANDLE, m_hCopyDecalsFromThisEnt );
+#endif
+
 protected:
 	void CalcRagdollSize( void );
 	ragdoll_t			m_ragdoll;
@@ -147,6 +151,20 @@ private:
 	
 	Vector				m_ragdollMins[RAGDOLL_MAX_ELEMENTS];
 	Vector				m_ragdollMaxs[RAGDOLL_MAX_ELEMENTS];
+
+#ifdef HOE_DLL
+	string_t			m_iszInitialPose; // Use frame 0 of this sequence as the intial ragdoll pose
+
+	void		RestoreRemovedBones( void );
+	bool		m_bRemovedBones[RAGDOLL_MAX_ELEMENTS]; // Disable collisions when head is chopped off
+
+public:
+	int m_bloodColor;
+	virtual int BloodColor( void ) { return m_bloodColor; }
+	void SetBloodColor( int nBloodColor ) { m_bloodColor = nBloodColor; }
+
+	void RemoveBone( const char *szBone );
+#endif // HOE_DLL
 };
 
 CBaseEntity *CreateServerRagdoll( CBaseAnimating *pAnimating, int forceBone, const CTakeDamageInfo &info, int collisionGroup, bool bUseLRURetirement = false );

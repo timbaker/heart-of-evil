@@ -302,8 +302,13 @@ void CFourWheelVehiclePhysics::CalcWheelData( vehicleparams_t &vehicle )
 		VectorITransform( left, m_pOuter->EntityToWorldTransform(), left );
 		VectorITransform( right, m_pOuter->EntityToWorldTransform(), right );
 		// Cache the height range of the wheels in body space
+#ifdef HOE_DLL // BUG
+		m_wheelTotalHeight[2] = m_wheelBaseHeight[2] - left.z;
+		m_wheelTotalHeight[3] = m_wheelBaseHeight[3] - right.z;
+#else // HOE_DLL
 		m_wheelTotalHeight[2] = m_wheelBaseHeight[0] - left.z;
 		m_wheelTotalHeight[3] = m_wheelBaseHeight[1] - right.z;
+#endif // HOE_DLL
 		vehicle.axles[1].wheels.springAdditionalLength = m_wheelTotalHeight[2];
 	}
 	for ( int i = 0; i < 4; i++ )
@@ -646,7 +651,11 @@ int CFourWheelVehiclePhysics::DrawDebugTextOverlays( int nOffset )
 {
 	const vehicle_operatingparams_t &params = m_pVehicle->GetOperatingParams();
 	char tempstr[512];
+#ifdef HOE_DLL
+	Q_snprintf( tempstr,sizeof(tempstr), "Speed %.1f  T/S/B (%.0f/%.1f/%.1f)", params.speed, m_controls.throttle, m_controls.steering, m_controls.brake );
+#else
 	Q_snprintf( tempstr,sizeof(tempstr), "Speed %.1f  T/S/B (%.0f/%.0f/%.1f)", params.speed, m_controls.throttle, m_controls.steering, m_controls.brake );
+#endif
 	m_pOuter->EntityText( nOffset, tempstr, 0 );
 	nOffset++;
 	Msg( "%s", tempstr );

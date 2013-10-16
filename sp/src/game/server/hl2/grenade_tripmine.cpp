@@ -12,10 +12,22 @@
 #include "vstdlib/random.h"
 #include "engine/IEngineSound.h"
 
+#ifdef HOE_DLL
+#if !defined( CLIENT_DLL )
+#include "gamestats.h"
+#include "soundent.h"
+#endif
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
 extern const char* g_pModelNameLaser;
+#ifdef HOE_DLL
+extern short	g_sModelIndexFireball;		// (in combatweapon.cpp) holds the index for the fireball 
+extern short	g_sModelIndexWExplosion;	// (in combatweapon.cpp) holds the index for the underwater explosion
+extern short	g_sModelIndexSmoke;			// (in combatweapon.cpp) holds the index for the smoke cloud
+#endif
 
 ConVar    sk_plr_dmg_tripmine		( "sk_plr_dmg_tripmine","0");
 ConVar    sk_npc_dmg_tripmine		( "sk_npc_dmg_tripmine","0");
@@ -35,10 +47,17 @@ BEGIN_DATADESC( CTripmineGrenade )
 	DEFINE_FIELD( m_angleOwner,	FIELD_VECTOR ),
 
 	// Function Pointers
+#ifdef HOE_DLL
+	DEFINE_THINKFUNC( WarningThink ),
+	DEFINE_THINKFUNC( PowerupThink ),
+	DEFINE_THINKFUNC( BeamBreakThink ),
+	DEFINE_THINKFUNC( DelayDeathThink ),
+#else
 	DEFINE_FUNCTION( WarningThink ),
 	DEFINE_FUNCTION( PowerupThink ),
 	DEFINE_FUNCTION( BeamBreakThink ),
 	DEFINE_FUNCTION( DelayDeathThink ),
+#endif
 
 END_DATADESC()
 
@@ -57,10 +76,17 @@ void CTripmineGrenade::Spawn( void )
 	SetMoveType( MOVETYPE_FLY );
 	SetSolid( SOLID_BBOX );
 	AddSolidFlags( FSOLID_NOT_SOLID );
+#ifdef HOE_DLL
+	SetModel( "models/tripmine/w_tripmine.mdl" );
+#else
 	SetModel( "models/Weapons/w_slam.mdl" );
+#endif
 
-
+#ifdef HOE_DLL
+	SetCycle( 0 );
+#else
 	m_flCycle		= 0;
+#endif
 	m_nBody			= 3;
 	m_flDamage		= sk_plr_dmg_tripmine.GetFloat();
 	m_DmgRadius		= sk_tripmine_radius.GetFloat();
@@ -72,7 +98,11 @@ void CTripmineGrenade::Spawn( void )
 
 	m_flPowerUp = gpGlobals->curtime + 2.0;
 	
+#ifdef HOE_DLL
+	SetThink( &CTripmineGrenade::PowerupThink );
+#else
 	SetThink( PowerupThink );
+#endif
 	SetNextThink( gpGlobals->curtime + 0.2 );
 
 	m_takedamage		= DAMAGE_YES;
@@ -83,30 +113,54 @@ void CTripmineGrenade::Spawn( void )
 
 	// Tripmine sits at 90 on wall so rotate back to get m_vecDir
 	QAngle angles = GetLocalAngles();
+#ifndef HOE_DLL
 	angles.x -= 90;
+#endif
 
 	AngleVectors( angles, &m_vecDir );
 	m_vecEnd = GetLocalOrigin() + m_vecDir * 2048;
+
+#ifdef HOE_DLL
+	trace_t tr;
+	Vector vecSrc = GetAbsOrigin() + m_vecDir * 1;
+	Vector vecEnd = vecSrc + m_vecDir * -10;
+	UTIL_TraceLine( vecSrc, vecEnd, MASK_SOLID, this, COLLISION_GROUP_NONE, &tr );
+	if ( tr.fraction < 1.0 )
+		SetAbsOrigin( tr.endpos );
+#endif
 }
 
 
 void CTripmineGrenade::Precache( void )
 {
+#ifdef HOE_DLL
+	PrecacheModel("models/tripmine/w_tripmine.mdl");
+#else
 	PrecacheModel("models/Weapons/w_slam.mdl"); 
+#endif
+
 
 	PrecacheScriptSound( "TripmineGrenade.Charge" );
+#ifndef HOE_DLL
 	PrecacheScriptSound( "TripmineGrenade.PowerUp" );
+#endif
 	PrecacheScriptSound( "TripmineGrenade.StopSound" );
 	PrecacheScriptSound( "TripmineGrenade.Activate" );
+#ifndef HOE_DLL
 	PrecacheScriptSound( "TripmineGrenade.ShootRope" );
 	PrecacheScriptSound( "TripmineGrenade.Hook" );
+#endif
 }
 
 
 void CTripmineGrenade::WarningThink( void  )
 {
 	// set to power up
+#ifdef HOE_DLL
+	SetThink( &CTripmineGrenade::PowerupThink );
+#else
 	SetThink( PowerupThink );
+#endif
 	SetNextThink( gpGlobals->curtime + 1.0f );
 }
 
@@ -120,7 +174,11 @@ void CTripmineGrenade::PowerupThink( void  )
 		m_bIsLive			= true;
 
 		// play enabled sound
+#ifdef HOE_DLL
+		EmitSound( "TripmineGrenade.Activate" );
+#else
 		EmitSound( "TripmineGrenade.PowerUp" );;
+#endif
 	}
 	SetNextThink( gpGlobals->curtime + 0.1f );
 }
@@ -163,8 +221,11 @@ void CTripmineGrenade::MakeBeam( void )
 	}
 
 	// set to follow laser spot
+#ifdef HOE_DLL
+	SetThink( &CTripmineGrenade::BeamBreakThink );
+#else
 	SetThink( BeamBreakThink );
-
+#endif
 	// Delay first think slightly so beam has time
 	// to appear if person right in front of it
 	SetNextThink( gpGlobals->curtime + 1.0f );
@@ -230,7 +291,11 @@ int CTripmineGrenade::OnTakeDamage_Alive( const CTakeDamageInfo &info )
 	{
 		// disable
 		// Create( "weapon_tripmine", GetLocalOrigin() + m_vecDir * 24, GetAngles() );
+#ifdef HOE_DLL
+		SetThink( &CTripmineGrenade::SUB_Remove );
+#else
 		SetThink( SUB_Remove );
+#endif
 		SetNextThink( gpGlobals->curtime + 0.1f );
 		KillBeam();
 		return FALSE;
@@ -247,8 +312,16 @@ void CTripmineGrenade::Event_Killed( const CTakeDamageInfo &info )
 {
 	m_takedamage		= DAMAGE_NO;
 
+#ifdef HOE_DLL
+	SetThink( &CTripmineGrenade::DelayDeathThink );
+#else
 	SetThink( DelayDeathThink );
+#endif
+#ifdef HOE_DLL
+	SetNextThink( gpGlobals->curtime + random->RandomFloat( 0.1, 0.3 ) ); // HL1 value
+#else
 	SetNextThink( gpGlobals->curtime + 0.5 );
+#endif
 
 	EmitSound( "TripmineGrenade.StopSound" );
 }
@@ -264,3 +337,106 @@ void CTripmineGrenade::DelayDeathThink( void )
 	Explode( &tr, DMG_BLAST );
 }
 
+#ifdef HOE_DLL
+// UNDONE: temporary scorching for PreAlpha - find a less sleazy permenant solution.
+void CTripmineGrenade::Explode( trace_t *pTrace, int bitsDamageType )
+{
+#if !defined( CLIENT_DLL )
+	
+	SetModelName( NULL_STRING );//invisible
+	AddSolidFlags( FSOLID_NOT_SOLID );
+
+	m_takedamage = DAMAGE_NO;
+
+	// Pull out of the wall a bit
+	if ( pTrace->fraction != 1.0 )
+	{
+		SetAbsOrigin( pTrace->endpos + (pTrace->plane.normal * 0.6) );
+	}
+
+	Vector vecAbsOrigin = GetAbsOrigin();
+	int contents = UTIL_PointContents ( vecAbsOrigin );
+
+#if defined( TF_DLL )
+	// Since this code only runs on the server, make sure it shows the tempents it creates.
+	// This solves a problem with remote detonating the pipebombs (client wasn't seeing the explosion effect)
+	CDisablePredictionFiltering disabler;
+#endif
+
+	if ( pTrace->fraction != 1.0 )
+	{
+		Vector vecNormal = pTrace->plane.normal;
+		surfacedata_t *pdata = physprops->GetSurfaceData( pTrace->surface.surfaceProps );	
+		CPASFilter filter( vecAbsOrigin );
+
+		te->Explosion( filter, -1.0, // don't apply cl_interp delay
+			&vecAbsOrigin,
+			!( contents & MASK_WATER ) ? g_sModelIndexFireball : g_sModelIndexWExplosion,
+			m_DmgRadius * .03, 
+			25,
+			TE_EXPLFLAG_NONE,
+			m_DmgRadius,
+			m_flDamage,
+			&vecNormal,
+			(char) pdata->game.material );
+	}
+	else
+	{
+		CPASFilter filter( vecAbsOrigin );
+		te->Explosion( filter, -1.0, // don't apply cl_interp delay
+			&vecAbsOrigin, 
+			!( contents & MASK_WATER ) ? g_sModelIndexFireball : g_sModelIndexWExplosion,
+			m_DmgRadius * .03, 
+			25,
+			TE_EXPLFLAG_NONE,
+			m_DmgRadius,
+			m_flDamage );
+	}
+
+#if !defined( CLIENT_DLL )
+	CSoundEnt::InsertSound ( SOUND_COMBAT, GetAbsOrigin(), BASEGRENADE_EXPLOSION_VOLUME, 3.0 );
+#endif
+
+	// Use the thrower's position as the reported position
+	Vector vecReported = /*m_hThrower ? m_hThrower->GetAbsOrigin() :*/ vec3_origin;
+	
+	CTakeDamageInfo info( this, 0/*m_hThrower*/, GetBlastForce(), GetAbsOrigin(), m_flDamage, bitsDamageType, 0, &vecReported );
+
+	RadiusDamage( info, GetAbsOrigin(), m_DmgRadius, CLASS_NONE, NULL );
+
+	UTIL_DecalTrace( pTrace, "Scorch" );
+
+	EmitSound( "BaseGrenade.Explode" );
+
+	SetThink( &CBaseCombatCharacter::SUB_Remove );
+	SetTouch( NULL );
+	SetSolid( SOLID_NONE );
+	
+	AddEffects( EF_NODRAW );
+	SetAbsVelocity( vec3_origin );
+
+#if HL2_EPISODIC
+	// Because the grenade is zipped out of the world instantly, the EXPLOSION sound that it makes for
+	// the AI is also immediately destroyed. For this reason, we now make the grenade entity inert and
+	// throw it away in 1/10th of a second instead of right away. Removing the grenade instantly causes
+	// intermittent bugs with env_microphones who are listening for explosions. They will 'randomly' not
+	// hear explosion sounds when the grenade is removed and the SoundEnt thinks (and removes the sound)
+	// before the env_microphone thinks and hears the sound.
+	SetNextThink( gpGlobals->curtime + 0.1 );
+#else
+	SetNextThink( gpGlobals->curtime );
+#endif//HL2_EPISODIC
+
+#ifndef HOE_DLL
+#if defined( HL2_DLL )
+	CBasePlayer *pPlayer = ToBasePlayer( m_hThrower.Get() );
+	if ( pPlayer )
+	{
+		gamestats->Event_WeaponHit( pPlayer, true, "weapon_frag", info );
+	}
+#endif
+#endif
+
+#endif
+}
+#endif

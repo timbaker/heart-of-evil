@@ -87,6 +87,9 @@ public:
 		// Tasks
 		TASK_PASSENGER_ENTER_VEHICLE = BaseClass::NEXT_TASK,
 		TASK_PASSENGER_EXIT_VEHICLE,
+#ifdef HOE_DLL
+		TASK_PASSENGER_IDLE,
+#endif // HOE_DLL
 		TASK_PASSENGER_ATTACH_TO_VEHICLE,
 		TASK_PASSENGER_DETACH_FROM_VEHICLE,
 		TASK_PASSENGER_SET_IDEAL_ENTRY_YAW,
@@ -130,7 +133,11 @@ public:
 	virtual string_t GetRoleName( void ) { return MAKE_STRING( "passenger" ); }
 
 	// Enable/disable code
+#ifdef HOE_DLL
+	void	Enable( CBaseEntity *pVehicle, bool bImmediateEntrance = false );
+#else
 	void	Enable( CPropJeepEpisodic *pVehicle, bool bImmediateEntrance = false );
+#endif
 	void	Disable( void );
 	bool	IsEnabled( void ) const { return m_bEnabled; }
 
@@ -139,8 +146,11 @@ public:
 
 	void	AddPhysicsPush( float force );
 
+#ifdef HOE_DLL
+	CBaseEntity *GetTargetVehicle( void ) const { return m_hVehicle; }
+#else
 	CPropVehicleDriveable *GetTargetVehicle( void ) const { return m_hVehicle; }
-
+#endif
 	PassengerState_e	GetPassengerState( void ) const { return m_PassengerState; }
 	
 	virtual void OnRestore();
@@ -185,6 +195,9 @@ protected:
 	int		FindEntrySequence( bool bNearest = false );
 	int		FindExitSequence( void );
 	bool	IsValidTransitionPoint( const Vector &vecStartPos, const Vector &vecEndPos );
+#ifdef HOE_DLL
+	int		FindIdleSequence( void );
+#endif // HOE_DLL
 
 	void	SetPassengerState( PassengerState_e state ) { m_PassengerState = state; }
 
@@ -196,7 +209,11 @@ protected:
 
 	passengerVehicleState_t			m_vehicleState;			// Internal vehicle state
 
+#ifdef HOE_DLL
+	EHANDLE							m_hVehicle;				// The vehicle we're bound to
+#else
 	CHandle	<CPropVehicleDriveable>	m_hVehicle;				// The vehicle we're bound to
+#endif
 	CHandle <CEntityBlocker>		m_hBlocker;				// Blocking entity for space reservation
 	Vector							m_vecTargetPosition;	// Target destination for exiting the vehicle
 	QAngle							m_vecTargetAngles;		// Target angles for exiting the vehicle

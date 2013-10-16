@@ -50,6 +50,9 @@ public:
 	const vehicleparams_t	*GetVehicleParams( void );
 	const vehicle_controlparams_t *GetVehicleControlParams( void );
 	const vehicle_operatingparams_t	*GetVehicleOperatingParams( void );
+#ifdef HOE_DLL
+	virtual float GetVehicleFOV( void );
+#endif // HOE_DLL
 
 	// NPC Driving
 	void					NPC_SetDriver( CNPC_VehicleDriver *pDriver );

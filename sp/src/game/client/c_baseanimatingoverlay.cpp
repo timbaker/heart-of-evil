@@ -362,6 +362,16 @@ void C_BaseAnimatingOverlay::AccumulateLayers( IBoneSetup &boneSetup, Vector pos
 				// do a nice spline interpolation of the values
 				// if ( m_AnimOverlay[i].m_nSequence != m_iv_AnimOverlay.GetPrev( i )->nSequence )
 				float fCycle = m_AnimOverlay[ i ].m_flCycle;
+#ifdef HOE_DLL
+				// BUG - m_flCycle should be using looping interpolation if the sequence
+				// loops.
+				if ( IsSequenceLooping( m_AnimOverlay[i].m_nSequence ) )
+				{
+//					float fPrevCycle = m_AnimOverlay[ i ].m_flPrevCycle;
+//					DevMsgRT( "cycle %.2f prev %.2f\n", fCycle, fPrevCycle );
+					m_iv_AnimOverlay[ i ].SetLooping( true );
+				}
+#endif
 
 				fCycle = ClampCycle( fCycle, IsSequenceLooping( m_AnimOverlay[i].m_nSequence ) );
 

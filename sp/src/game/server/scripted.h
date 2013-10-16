@@ -104,6 +104,15 @@ public:
 	void InputBeginSequence( inputdata_t &inputdata );
 	void InputCancelSequence( inputdata_t &inputdata );
 	void InputMoveToPosition( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void InputSetLoopActionSequence( inputdata_t &inputdata );
+
+	void OnArrival( void )
+	{
+		m_OnArrival.FireOutput( this, this );
+	}
+	COutputEvent m_OnArrival;
+#endif // HOE_DLL
 
 	bool IsTimeToStart( void );
 	bool IsWaitingForBegin( void );

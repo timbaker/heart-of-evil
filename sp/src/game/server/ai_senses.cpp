@@ -99,7 +99,11 @@ bool CAI_Senses::CanHearSound( CSound *pSound )
 	// @TODO (toml 10-18-02): what about player sounds and notarget?
 	float flHearDistanceSq = pSound->Volume() * GetOuter()->HearingSensitivity();
 	flHearDistanceSq *= flHearDistanceSq;
+#ifdef HOE_SOUND_SHAPE
+	if( pSound->HackGetSoundOrigin( GetOuter()->EarPosition() ).DistToSqr( GetOuter()->EarPosition() ) <= flHearDistanceSq )
+#else // HOE_SOUND_SHAPE
 	if( pSound->GetSoundOrigin().DistToSqr( GetOuter()->EarPosition() ) <= flHearDistanceSq )
+#endif // HOE_SOUND_SHAPE
 	{
 		return GetOuter()->QueryHearSound( pSound );
 	}
@@ -625,7 +629,11 @@ CSound *CAI_Senses::GetClosestSound( bool fScent, int validTypes, bool bUsePrior
 			{
 				if( !bUsePriority || GetOuter()->GetSoundPriority(pCurrent) >= iBestPriority )
 				{
+#ifdef HOE_SOUND_SHAPE
+					flDist = ( pCurrent->HackGetSoundOrigin( earPosition ) - earPosition ).LengthSqr();
+#else // HOE_SOUND_SHAPE
 					flDist = ( pCurrent->GetSoundOrigin() - earPosition ).LengthSqr();
+#endif // HOE_SOUND_SHAPE
 
 					if ( flDist < flBestDist )
 					{

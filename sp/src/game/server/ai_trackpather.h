@@ -42,6 +42,9 @@ protected:
 	virtual bool	HasReachedTarget( void ) 				{ return (WorldSpaceCenter() - m_vecDesiredPosition).Length() < 128; }
 
 	CPathTrack *	GetDestPathTarget()						{ return m_pDestPathTarget;		}
+#ifdef HOE_DLL
+	CPathTrack *	GetCurrentPathTarget()					{ return m_pCurrentPathTarget;	}
+#endif // HOE_DLL
 
 	bool			IsInForcedMove() const					{ return m_bForcedMove;			}
 	void			ClearForcedMove()						{ m_bForcedMove = false;		}
@@ -76,7 +79,9 @@ protected:
 
 	// Computes a "path" velocity at a particular point along the current path
 	void ComputePathTangent( float t, Vector *pVecTangent ) const;
-
+#if 1 /* HOE_TRACK_SPLINE */
+	void ComputePathTangent( const Vector &pVecTest, Vector &pVecTangent ) const;
+#endif
 	// Computes the *normalized* velocity at which the helicopter should approach the final point
 	void ComputeNormalizedDestVelocity( Vector *pVecVelocity ) const;
 
@@ -107,6 +112,9 @@ protected:
 	// Compute a point n units along the current path from our current position
 	// (but don't pass the desired target point)
 	void ComputePointAlongCurrentPath( float flDistance, float flPerpDist, Vector *pTarget );
+#if 1 /* HOE_TRACK_SPLINE */
+	void AdvanceAlongCurrentPath( float flDistance, Vector *pTarget, bool bBrake );
+#endif
 
 	// Returns the perpendicular distance of the target from the nearest path point
 	float TargetDistanceToPath() const { return m_flTargetDistFromPath; }

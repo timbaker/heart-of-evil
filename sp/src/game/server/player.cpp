@@ -96,6 +96,9 @@ ConVar	spec_freeze_traveltime( "spec_freeze_traveltime", "0.4", FCVAR_CHEAT | FC
 ConVar sv_bonus_challenge( "sv_bonus_challenge", "0", FCVAR_REPLICATED, "Set to values other than 0 to select a bonus map challenge type." );
 
 static ConVar sv_maxusrcmdprocessticks( "sv_maxusrcmdprocessticks", "24", FCVAR_NOTIFY, "Maximum number of client-issued usrcmd ticks that can be replayed in packet loss conditions, 0 to allow no restrictions" );
+#ifdef HOE_DLL
+ConVar hoe_hev_sounds( "hoe_hev_sounds", "0", FCVAR_NONE, "Turns the HEV speaker on/off." );
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -273,6 +276,12 @@ BEGIN_DATADESC( CBasePlayer )
 	DEFINE_FIELD( m_flFOVTime,	FIELD_TIME ),
 	DEFINE_FIELD( m_iDefaultFOV,FIELD_INTEGER ),
 	DEFINE_FIELD( m_flVehicleViewFOV, FIELD_FLOAT ),
+
+#ifdef HOE_THIRDPERSON
+	DEFINE_FIELD( m_fThirdPerson, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_fThirdPersonAimMode, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flThirdPersonAimModeTime, FIELD_TIME ),
+#endif // HOE_THIRDPERSON
 
 	//DEFINE_FIELD( m_fOnTarget, FIELD_BOOLEAN ), // Don't need to restore
 	DEFINE_FIELD( m_iObserverMode, FIELD_INTEGER ),
@@ -584,7 +593,13 @@ CBasePlayer::CBasePlayer( )
 	m_bForceOrigin = false;
 	m_hVehicle = NULL;
 	m_pCurrentCommand = NULL;
-	
+
+#ifdef HOE_THIRDPERSON
+	m_fThirdPerson = false; // FIXME: get from convar
+	m_fThirdPersonAimMode = false;
+	m_flThirdPersonAimModeTime = 0.0f;
+#endif
+
 	// Setup our default FOV
 	m_iDefaultFOV = g_pGameRules->DefaultFOV();
 
@@ -834,6 +849,9 @@ void CBasePlayer::DeathSound( const CTakeDamageInfo &info )
 	// play one of the suit death alarms
 	if ( IsSuitEquipped() )
 	{
+#ifdef HOE_DLL
+		if ( hoe_hev_sounds.GetBool() == true )
+#endif // HOE_DLL
 		UTIL_EmitGroupnameSuit(edict(), "HEV_DEAD");
 	}
 }
@@ -1550,6 +1568,11 @@ void CBasePlayer::RemoveAllItems( bool removeSuit )
 	Weapon_SetLast( NULL );
 	RemoveAllWeapons();
  	RemoveAllAmmo();
+#ifdef HOE_DLL
+	// BUG: weaponstrip -> level change causes the viewmodel to reappear
+	// FIXME: should call this after the active weapon has finished its Holster() animation
+	HideViewModels();
+#endif
 
 	if ( removeSuit )
 	{
@@ -1729,6 +1752,10 @@ void CBasePlayer::Event_Killed( const CTakeDamageInfo &info )
 
 void CBasePlayer::Event_Dying( const CTakeDamageInfo& info )
 {
+#ifdef HOE_THIRDPERSON
+	ThirdPersonSwitch( false );
+#endif
+
 	// NOT GIBBED, RUN THIS CODE
 
 	DeathSound( info );
@@ -1751,10 +1778,32 @@ void CBasePlayer::Event_Dying( const CTakeDamageInfo& info )
 	BaseClass::Event_Dying( info );
 }
 
+#ifdef HOE_THIRDPERSON
+bool CBasePlayer::IsThirdPerson( void ) const
+{
+	return m_fThirdPerson;
+}
+void CBasePlayer::ThirdPersonSwitch( bool bThirdPerson )
+{
+	DevMsg( "CBasePlayer::ThirdPersonSwitch %d ==> %d\n", (int)m_fThirdPerson, (int)bThirdPerson );
+	m_fThirdPerson = bThirdPerson;
+}
+bool CBasePlayer::InThirdPersonAimMode( void ) const
+{
+	return m_fThirdPersonAimMode;
+}
+void CBasePlayer::ThirdPersonAimModeSwitch( bool bAimMode )
+{
+	DevMsg( "CBasePlayer::ThirdPersonAimModeSwitch %d ==> %d\n", (int)m_fThirdPersonAimMode, (int)bAimMode );
+	m_fThirdPersonAimMode = bAimMode;
+	m_flThirdPersonAimModeTime = gpGlobals->curtime;
+}
+#endif
 
 // Set the activity based on an event or current state
 void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 {
+#ifndef HOE_THIRDPERSON // Use PlayerAnimState with gestures and aiming
 	int animDesired;
 	char szAnim[64];
 
@@ -1899,6 +1948,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 	// Reset to first frame of desired animation
 	ResetSequence( animDesired );
 	SetCycle( 0 );
+#endif // !HOE_THIRDPERSON
 }
 
 /*
@@ -2771,6 +2821,31 @@ bool CBasePlayer::IsUseableEntity( CBaseEntity *pEntity, unsigned int requiredCa
 		{
 			if ( (caps & requiredCaps) == requiredCaps )
 			{
+#ifdef HOE_DLL
+				if ( FClassnameIs( pEntity, "func_tracktrain" ) )
+				{
+					if ( !(GetFlags() & FL_ONGROUND) ) return false;
+					if ( pEntity != GetGroundEntity() ) return false;
+					if ( m_nButtons & IN_JUMP ) return false;
+					if ( !(pEntity->ObjectCaps() & FCAP_DIRECTIONAL_USE) ) return false;
+					if ( !pEntity->OnControls(this) ) return false;
+				}
+
+				if ( pEntity->m_flUseableFOV != -1 )
+				{
+					Vector forward;
+					AngleVectors( pEntity->m_angUseable, &forward );
+					forward.z = 0;
+
+					Vector dir = EyePosition() - pEntity->CollisionProp()->WorldSpaceCenter();
+					dir.z = 0;
+					VectorNormalize(dir);
+					float dot = DotProduct( dir, forward );
+//DevMsg("CBasePlayer::IsUseableEntity dot %.2f m_flUseableFOV %.2f\n", dot, pEntity->m_flUseableFOV );
+					if ( dot <= pEntity->m_flUseableFOV )
+						return false;
+				}
+#endif
 				return true;
 			}
 		}
@@ -4176,6 +4251,11 @@ Play suit update if it's time
 
 void CBasePlayer::CheckSuitUpdate()
 {
+#ifdef HOE_DLL
+	if ( hoe_hev_sounds.GetBool() == false )
+		return;
+#endif // HOE_DLL
+
 	int i;
 	int isentence = 0;
 	int isearch = m_iSuitPlayNext;
@@ -4237,6 +4317,11 @@ void CBasePlayer::CheckSuitUpdate()
 
 void CBasePlayer::SetSuitUpdate(const char *name, int fgroup, int iNoRepeatTime)
 {
+#ifdef HOE_DLL
+	if ( hoe_hev_sounds.GetBool() == false )
+		return;
+#endif // HOE_DLL
+
 	int i;
 	int isentence;
 	int iempty = -1;
@@ -5177,6 +5262,28 @@ int CBasePlayer::Restore( IRestore &restore )
 		SetLocalOrigin( pSpawnSpot->GetLocalOrigin() + Vector(0,0,1) );
 		SetLocalAngles( pSpawnSpot->GetLocalAngles() );
 	}
+#ifdef HOE_DLL
+	else
+	{
+		extern const char *g_MapChangeLandmarkName; // pSaveData->levelInfo.szLandmarkName is "" for some reason
+		if ( g_MapChangeLandmarkName != NULL )
+		{
+			CBaseEntity *pStart = gEntList.FindEntityByClassname( NULL, "info_landmark" );
+			while ( pStart != NULL )
+			{
+				if ( pStart->NameMatches( g_MapChangeLandmarkName ) )
+					break;
+				pStart = gEntList.FindEntityByClassname( pStart, "info_landmark" );
+			}
+			if ( pStart != NULL )
+			{
+				extern void LandmarkTeleportPlayer( CBasePlayer *pPlayer, CBaseEntity *pEnt );
+				LandmarkTeleportPlayer( this, pStart );
+			}
+			g_MapChangeLandmarkName = NULL;
+		}
+	}
+#endif // HOE_DLL
 
 	QAngle newViewAngles = pl.v_angle;
 	newViewAngles.z = 0;	// Clear out roll
@@ -6136,6 +6243,22 @@ void CBasePlayer::CheatImpulseCommands( int iImpulse )
 
 		EquipSuit();
 
+#ifdef HOE_DLL
+		GiveNamedItem( "weapon_870" ); GiveAmmo( 255, "Buckshot"); GiveAmmo( 255, "Elephantshot" );
+		GiveNamedItem( "weapon_ak47" ); GiveAmmo( 255, "7_62x39mm_M1943" );
+		GiveNamedItem( "weapon_chainsaw" ); GiveAmmo( 255, "Gas" );
+		GiveNamedItem( "weapon_colt1911A1" ); GiveAmmo( 255, "11_43mm" );
+		GiveNamedItem( "weapon_handgrenade" ); GiveAmmo( 5,	"grenade");
+//		GiveNamedItem( "weapon_letter" );
+		GiveNamedItem( "weapon_m16" ); GiveAmmo( 255, "5_56mm" );
+		GiveNamedItem( "weapon_m21" ); GiveAmmo( 255, "m21" );
+		GiveNamedItem( "weapon_m60" ); GiveAmmo( 255, "7_62mm" );
+		GiveNamedItem( "weapon_m79" ); GiveAmmo( 255, "AR_Grenade" );
+		GiveNamedItem( "weapon_machete" );
+		GiveNamedItem( "weapon_rpg7" ); GiveAmmo( 3, "rpg_round");
+		GiveNamedItem( "weapon_snark" ); GiveAmmo( 5, "Snark" );
+		GiveNamedItem( "weapon_tripmine" ); GiveAmmo( 255, "Tripmine" );
+#else // !HOE_DLL
 		// Give the player everything!
 		GiveAmmo( 255,	"Pistol");
 		GiveAmmo( 255,	"AR2");
@@ -6164,6 +6287,8 @@ void CBasePlayer::CheatImpulseCommands( int iImpulse )
 #ifdef HL2_EPISODIC
 		// GiveNamedItem( "weapon_magnade" );
 #endif
+#endif // !HOE_DLL
+
 		if ( GetHealth() < 100 )
 		{
 			TakeHealth( 25, DMG_GENERIC );
@@ -7920,6 +8045,12 @@ void SendProxy_CropFlagsToPlayerFlagBitsLength( const SendProp *pProp, const voi
 
 		SendPropArray3		( SENDINFO_ARRAY3(m_iAmmo), SendPropInt( SENDINFO_ARRAY(m_iAmmo), -1, SPROP_VARINT | SPROP_UNSIGNED ) ),
 			
+#ifdef HOE_THIRDPERSON
+		SendPropInt			( SENDINFO( m_fThirdPerson ), 2, SPROP_UNSIGNED ),
+		SendPropInt			( SENDINFO( m_fThirdPersonAimMode ), 2, SPROP_UNSIGNED ),
+		SendPropFloat		( SENDINFO( m_flThirdPersonAimModeTime ) ),
+#endif // HOE_THIRDPERSON
+
 		SendPropInt			( SENDINFO( m_fOnTarget ), 2, SPROP_UNSIGNED ),
 
 		SendPropInt			( SENDINFO( m_nTickBase ), -1, SPROP_CHANGES_OFTEN ),

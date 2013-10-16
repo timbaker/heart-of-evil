@@ -7,7 +7,9 @@
 
 
 #include "cbase.h"
+#ifndef HOE_DLL
 #include "BasePropDoor.h"
+#endif
 #include "ai_basenpc.h"
 #include "npcevent.h"
 #include "engine/IEngineSound.h"
@@ -501,9 +503,13 @@ void CBreakableProp::HandleFirstCollisionInteractions( int index, gamevcollision
 		{
 #ifdef HL2_DLL
 			// Don't paintsplat friendlies
+#ifdef HOE_DLL
+			if ( !tr.m_pEnt->ClassifyPlayerAllyVital() && !tr.m_pEnt->ClassifyPlayerAlly() )
+#else // HOE_DLL
 			int iClassify = tr.m_pEnt->Classify();
 			if ( iClassify != CLASS_PLAYER_ALLY_VITAL && iClassify != CLASS_PLAYER_ALLY && 
 				 iClassify != CLASS_CITIZEN_PASSIVE && iClassify != CLASS_CITIZEN_REBEL ) 
+#endif // HOE_DLL
 #endif
 			{
 				switch( entindex() % 3 )
@@ -3026,6 +3032,27 @@ void CPhysicsProp::VPhysicsCollision( int index, gamevcollisionevent_t *pEvent )
 		HandleAnyCollisionInteractions( index, pEvent );
 	}
 
+#ifdef HOE_DLL
+	if ( HasInteraction( PROPINTER_WORLD_BLOODSPLAT ) && pEvent->deltaCollisionTime >= 0.15 )
+	{
+		trace_t tr;
+
+		// CPropCombineBall::CollisionEventToTrace
+		UTIL_ClearTrace( tr );
+		pEvent->pInternalData->GetSurfaceNormal( tr.plane.normal );
+		pEvent->pInternalData->GetContactPoint( tr.endpos );
+		tr.plane.dist = DotProduct( tr.plane.normal, tr.endpos );
+		VectorMA( tr.endpos, -1.0f, pEvent->preVelocity[index], tr.startpos );
+		tr.m_pEnt = pEvent->pEntities[!index];
+		tr.fraction = 0.01f;	// spoof!
+
+		if ( tr.m_pEnt )
+		{
+			UTIL_BloodDecalTrace( &tr, BLOOD_COLOR_RED );
+		}
+	}
+#endif // HOE_DLL
+
 	if ( !HasSpawnFlags( SF_PHYSPROP_DONT_TAKE_PHYSICS_DAMAGE ) )
 	{
 		int damageType = 0;
@@ -3496,7 +3523,7 @@ bool PropBreakableCapEdictsOnCreateAll(int modelindex, IPhysicsObject *pPhysics,
 	return ( !numToCreate || ( engine->GetEntityCount() + numToCreate + BREATHING_ROOM < MAX_EDICTS ) );
 }
 
-
+#ifndef HOE_DLL
 //=============================================================================================================
 // BASE PROP DOOR
 //=============================================================================================================
@@ -5427,6 +5454,8 @@ void CPropDoorRotating::InputSetRotationDistance( inputdata_t &inputdata )
 	CalculateDoorVolume( GetLocalAngles(), m_angRotationOpenBack, &m_vecBackBoundsMin, &m_vecBackBoundsMax );
 }
 
+#endif // HOE_DLL
+
 // Debug sphere
 class CPhysSphere : public CPhysicsProp
 {
@@ -5451,12 +5480,16 @@ public:
 	}
 };
 
+#ifndef HOE_DLL
+
 void CPropDoorRotating::InputSetSpeed(inputdata_t &inputdata)
 {
 	AssertMsg1(inputdata.value.Float() > 0.0f, "InputSetSpeed on %s called with negative parameter!", GetDebugName() );
 	m_flSpeed = inputdata.value.Float();
 	DoorResume();
 }
+
+#endif // HOE_DLL
 
 LINK_ENTITY_TO_CLASS( prop_sphere, CPhysSphere );
 

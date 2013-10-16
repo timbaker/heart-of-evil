@@ -348,6 +348,10 @@ private:
 	bool					m_bReadyToFire;
 
 	int						m_iEffectHandling;
+
+#ifdef HOE_DLL
+	Vector m_vPlayerViewOffset; // see CalcPlayerCrosshairTarget
+#endif
 };
 
 #endif // FUNC_TANK_H

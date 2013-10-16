@@ -120,10 +120,17 @@ public:
 	virtual const char *GetHeadcrabClassname( void );
 	virtual const char *GetHeadcrabModel( void );
 
+#ifdef HOE_DLL
+	virtual bool OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, 
+								 IDoor *pDoor,
+								 float distClear, 
+								 AIMoveResult_t *pResult );
+#else // HOE_DLL
 	virtual bool OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, 
 								 CBaseDoor *pDoor,
 								 float distClear, 
 								 AIMoveResult_t *pResult );
+#endif // HOE_DLL
 
 	Activity SelectDoorBash();
 
@@ -157,7 +164,11 @@ protected:
 
 
 private:
+#ifdef HOE_DLL
+	EHANDLE				m_hBlockingDoor;
+#else
 	CHandle< CBaseDoor > m_hBlockingDoor;
+#endif
 	float				 m_flDoorBashYaw;
 	
 	CRandSimTimer 		 m_DurationDoorBash;
@@ -552,9 +563,22 @@ void CZombie::GatherConditions( void )
 
 	ClearConditions( conditionsToClear, ARRAYSIZE( conditionsToClear ) );
 
+#ifdef HOE_DLL
+	IDoorAccessor *pDoor = NULL;
+	if ( m_hBlockingDoor != NULL )
+	{
+		IDoor *pDoorIface = dynamic_cast<IDoor *>( m_hBlockingDoor.Get() );
+		if ( pDoorIface != NULL )
+			pDoor = pDoorIface->GetDoorAccessor();
+	}
+	if ( pDoor == NULL || 
+		( pDoor->IsDoorOpen() || 
+		  pDoor->IsDoorOpening() ) )
+#else
 	if ( m_hBlockingDoor == NULL || 
 		 ( m_hBlockingDoor->m_toggle_state == TS_AT_TOP || 
 		   m_hBlockingDoor->m_toggle_state == TS_GOING_UP )  )
+#endif
 	{
 		ClearCondition( COND_BLOCKED_BY_DOOR );
 		if ( m_hBlockingDoor != NULL )
@@ -751,6 +775,23 @@ void CZombie::RunTask( const Task_t *pTask )
 //---------------------------------------------------------
 //---------------------------------------------------------
 
+#ifdef HOE_DLL
+bool CZombie::OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, IDoor *pDoor, 
+							  float distClear, AIMoveResult_t *pResult )
+{
+	if ( BaseClass::OnObstructingDoor( pMoveGoal, pDoor, distClear, pResult ) )
+	{
+		if  ( IsMoveBlocked( *pResult ) && pMoveGoal->directTrace.vHitNormal != vec3_origin )
+		{
+			m_hBlockingDoor = pDoor->GetDoorAccessor()->GetEntity();
+			m_flDoorBashYaw = UTIL_VecToYaw( pMoveGoal->directTrace.vHitNormal * -1 );	
+		}
+		return true;
+	}
+
+	return false;
+}
+#else // HOE_DLL
 bool CZombie::OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, CBaseDoor *pDoor, 
 							  float distClear, AIMoveResult_t *pResult )
 {
@@ -766,6 +807,7 @@ bool CZombie::OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal, CBaseDoor *pDoor,
 
 	return false;
 }
+#endif // HOE_DLL
 
 //---------------------------------------------------------
 //---------------------------------------------------------

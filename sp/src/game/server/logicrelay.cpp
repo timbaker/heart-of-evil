@@ -29,6 +29,9 @@ BEGIN_DATADESC( CLogicRelay )
 
 	DEFINE_FIELD(m_bWaitForRefire, FIELD_BOOLEAN),
 	DEFINE_KEYFIELD(m_bDisabled, FIELD_BOOLEAN, "StartDisabled"),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD(m_sMaster, FIELD_STRING, "master"),
+#endif
 
 	// Inputs
 	DEFINE_INPUTFUNC(FIELD_VOID, "Enable", InputEnable),
@@ -140,6 +143,10 @@ void CLogicRelay::InputToggle( inputdata_t &inputdata )
 //-----------------------------------------------------------------------------
 void CLogicRelay::InputTrigger( inputdata_t &inputdata )
 {
+#ifdef HOE_DLL
+	if ( !UTIL_IsMasterTriggered( m_sMaster, inputdata.pActivator ) )
+		return;
+#endif
 	if ((!m_bDisabled) && (!m_bWaitForRefire))
 	{
 		m_OnTrigger.FireOutput( inputdata.pActivator, this );

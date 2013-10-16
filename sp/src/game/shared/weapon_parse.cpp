@@ -10,6 +10,9 @@
 #include "filesystem.h"
 #include "utldict.h"
 #include "ammodef.h"
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+#include "ai_utils.h"
+#endif // HOE_IRONSIGHTS
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -80,6 +83,10 @@ static CUtlDict< FileWeaponInfo_t*, unsigned short > m_WeaponInfoDatabase;
 // used to track whether or not two weapons have been mistakenly assigned the wrong slot
 bool g_bUsedWeaponSlots[MAX_WEAPON_SLOTS][MAX_WEAPON_POSITIONS] = { 0 };
 
+#endif
+
+#if defined(HOE_DLL) && defined(CLIENT_DLL)
+int g_iMaxWeaponSlot = -1;
 #endif
 
 //-----------------------------------------------------------------------------
@@ -260,6 +267,109 @@ KeyValues* ReadEncryptedKVFile( IFileSystem *filesystem, const char *szFilenameW
 	return pKV;
 }
 
+#ifdef HOE_VIEWMODEL_FUDGE
+static void LoadViewModelFudge( WEAPON_FILE_INFO_HANDLE hWeaponFileInfo )
+{
+	FileWeaponInfo_t *pWeaponInfo = GetFileWeaponInfoFromHandle( hWeaponFileInfo );
+	if ( !pWeaponInfo )
+		return;
+
+	pWeaponInfo->ViewModelFudge_Origin.Init();
+
+	char sz[128];
+	Q_snprintf(sz, sizeof( sz ), "scripts/%s", pWeaponInfo->szClassName);
+
+	KeyValues *pKeyValuesData = ReadEncryptedKVFile( filesystem, sz, g_pGameRules->GetEncryptionKey() );
+	if ( pKeyValuesData )
+	{
+		KeyValues *pSection = pKeyValuesData->FindKey( "ViewModelFudge" );
+		if ( pSection  )
+		{
+			float dx, dy, dz;
+			const char *s;
+
+			pWeaponInfo->IronSights_Available = true;
+
+			s = pSection->GetString( "origin", "0 0 0" );
+			if ( sscanf( s, "%g %g %g", &dx, &dy, &dz ) == 3 )
+				pWeaponInfo->ViewModelFudge_Origin.Init( dx, dy, dz );
+		}
+		pKeyValuesData->deleteThis();
+	}
+}
+#endif // HOE_VIEWMODEL_FUDGE
+
+#ifdef HOE_IRONSIGHTS
+static void LoadIronSights( WEAPON_FILE_INFO_HANDLE hWeaponFileInfo )
+{
+	FileWeaponInfo_t *pWeaponInfo = GetFileWeaponInfoFromHandle( hWeaponFileInfo );
+	if ( !pWeaponInfo )
+		return;
+
+	pWeaponInfo->IronSights_Available = false;
+	pWeaponInfo->IronSights_Origin.Init();
+	pWeaponInfo->IronSights_Angles.Init();
+	pWeaponInfo->IronSights_FOV = 0;
+
+	char sz[128];
+	Q_snprintf(sz, sizeof( sz ), "scripts/%s", pWeaponInfo->szClassName);
+
+	KeyValues *pKeyValuesData = ReadEncryptedKVFile( filesystem, sz, g_pGameRules->GetEncryptionKey() );
+	if ( pKeyValuesData )
+	{
+		KeyValues *pSection = pKeyValuesData->FindKey( "IronSights" );
+		if ( pSection  )
+		{
+			float dx, dy, dz;
+			const char *s;
+
+			pWeaponInfo->IronSights_Available = true;
+
+			s = pSection->GetString( "origin", "0 0 0" );
+			if ( sscanf( s, "%g %g %g", &dx, &dy, &dz ) == 3 )
+				pWeaponInfo->IronSights_Origin.Init( dx, dy, dz );
+
+			s = pSection->GetString( "angles", "0 0 0" );
+			if ( sscanf( s, "%g %g %g", &dx, &dy, &dz ) == 3 )
+				pWeaponInfo->IronSights_Angles.Init( dx, dy, dz );
+
+			pWeaponInfo->IronSights_FOV = pSection->GetInt( "fov", 0 );
+		}
+		pKeyValuesData->deleteThis();
+	}
+}
+
+static void IronSightsReload_f( void )
+{
+#ifdef CLIENT_DLL
+	C_BasePlayer *player = C_BasePlayer::GetLocalPlayer();
+#else
+	CBasePlayer *player = AI_GetSinglePlayer();
+#endif
+	if ( !player )
+		return;
+
+	for (int i = 0; i < MAX_WEAPONS; i++)
+	{
+		if ( player->GetWeapon(i) )
+		{
+#ifdef CLIENT_DLL
+			LoadIronSights( player->GetWeapon(i)->GetWeaponFileInfoHandle() );
+#else
+			WEAPON_FILE_INFO_HANDLE handle = FindWeaponInfoSlot( player->GetWeapon(i)->GetClassname() );
+			LoadIronSights( handle );
+#endif
+		}
+	}
+}
+
+#ifdef CLIENT_DLL
+static ConCommand hoe_cl_ironsights_reload( "hoe_ironsights_reload_cl", IronSightsReload_f, "Reload IronSights section from scripts/weapon_xxx.txt files (on client).", 0 );
+#else
+static ConCommand hoe_sv_ironsights_reload( "hoe_ironsights_reload_sv", IronSightsReload_f, "Reload IronSights section from scripts/weapon_xxx.txt files (on server).", 0 );
+#endif
+
+#endif // HOE_IRONSIGHTS
 
 //-----------------------------------------------------------------------------
 // Purpose: Read data on weapon from script file
@@ -297,6 +407,14 @@ bool ReadWeaponDataFromFileForSlot( IFileSystem* filesystem, const char *szWeapo
 		return false;
 
 	pFileInfo->Parse( pKV, szWeaponName );
+
+#ifdef HOE_VIEWMODEL_FUDGE
+	LoadViewModelFudge( *phandle );
+#endif // HOE_VIEWMODEL_FUDGE
+
+#ifdef HOE_IRONSIGHTS
+	LoadIronSights( *phandle );
+#endif // HOE_IRONSIGHTS
 
 	pKV->deleteThis();
 
@@ -428,6 +546,10 @@ void FileWeaponInfo_t::Parse( KeyValues *pKeyValuesData, const char *szWeaponNam
 		}
 		g_bUsedWeaponSlots[iSlot][iPosition] = true;
 	}
+#endif
+
+#if defined(HOE_DLL) && defined(CLIENT_DLL)
+	g_iMaxWeaponSlot = max( g_iMaxWeaponSlot, iSlot );
 #endif
 
 	// Primary ammo used

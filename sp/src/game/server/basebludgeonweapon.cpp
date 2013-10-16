@@ -21,6 +21,9 @@
 #include "te_effect_dispatch.h"
 #include "rumble_shared.h"
 #include "gamestats.h"
+#ifdef HOE_THIRDPERSON
+#include "hl2_player.h"
+#endif // HOE_THIRDPERSON
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -170,6 +173,9 @@ void CBaseHLBludgeonWeapon::Hit( trace_t &traceHit, Activity nHitActivity, bool 
 		// Now hit all triggers along the ray that... 
 		TraceAttackToTriggers( info, traceHit.startpos, traceHit.endpos, hitDirection );
 
+#ifdef HOE_DLL
+		OnHitEntity( info, traceHit );
+#endif
 		if ( ToBaseCombatCharacter( pHitEntity ) )
 		{
 			gamestats->Event_WeaponHit( pPlayer, !bIsSecondary, GetClassname(), info );
@@ -374,6 +380,10 @@ void CBaseHLBludgeonWeapon::Swing( int bIsSecondary )
 
 	// Send the anim
 	SendWeaponAnim( nHitActivity );
+
+#ifdef HOE_THIRDPERSON
+	ToHL2Player(pOwner)->DoAnimationEvent( PLAYERANIMEVENT_ATTACK_PRIMARY );
+#endif
 
 	//Setup our next attack times
 	m_flNextPrimaryAttack = gpGlobals->curtime + GetFireRate();

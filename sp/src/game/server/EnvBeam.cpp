@@ -89,6 +89,9 @@ public:
 	string_t		m_iszDecal;
 
 	COutputEvent	m_OnTouchedByEntity;
+#ifdef HOE_DLL
+	COutputEvent	m_OnStrike; // Added to play a sound when sparks appear
+#endif
 };
 
 LINK_ENTITY_TO_CLASS( env_beam, CEnvBeam );
@@ -125,6 +128,9 @@ BEGIN_DATADESC( CEnvBeam )
 	DEFINE_INPUTFUNC( FIELD_VOID, "StrikeOnce", InputStrikeOnce ),
 
 	DEFINE_OUTPUT( m_OnTouchedByEntity, "OnTouchedByEntity" ),
+#ifdef HOE_DLL
+	DEFINE_OUTPUT( m_OnStrike, "OnStrike" ),
+#endif
 
 END_DATADESC()
 
@@ -462,7 +468,10 @@ void CEnvBeam::Strike( void )
 		UTIL_TraceLine( pStart->GetAbsOrigin(), pEnd->GetAbsOrigin(), MASK_SOLID, NULL, COLLISION_GROUP_NONE, &tr );
 		BeamDamageInstant( &tr, m_flDamage );
 	}
-	
+
+#ifdef HOE_DLL
+	m_OnStrike.FireOutput( this, this, 0 );
+#endif
 }
 
 

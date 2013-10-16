@@ -41,6 +41,8 @@ CAI_TestHull*	CAI_TestHull::pTestHull			= NULL;
 
 #ifdef CSTRIKE_DLL
 #define PLAYER_MODEL "models/player/ct_urban.mdl"
+#elif defined( HOE_THIRDPERSON )
+#define PLAYER_MODEL "models/playerZ.mdl"
 #else
 #define PLAYER_MODEL "models/player.mdl"
 #endif

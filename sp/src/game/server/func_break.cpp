@@ -44,7 +44,37 @@ extern Vector		g_vecAttackDir;
 // This is done instead of just a classname in the FGD so we can control which entities can
 // be spawned, and still remain fairly flexible
 
-#ifndef HL1_DLL
+#ifdef HOE_DLL
+const char *CBreakable::pSpawnObjects[] =
+{
+	NULL,				// 0
+	"item_helmet",		// 1
+	"item_healthkit",	// 2
+	"weapon_machete",	// 3
+	"weapon_chainsaw",	// 4
+	"ammo_gas",			// 5
+	"weapon_colt1911a1",// 6
+	"ammo_1143mm",		// 7
+	"weapon_m16",		// 8
+	"ammo_m16clip",		// 9
+	"ammo_m16box",		// 10
+	"weapon_870",		// 11 was weapon_shotgun
+	"ammo_buckshot",	// 12
+	"ammo_elephantshot",// 13
+	"weapon_ak47",		// 14
+	"ammo_ak47clip",	// 15
+	"weapon_rpg7",		// 16 was weapon_rpg
+	"ammo_rpgclip",		// 17
+	"weapon_m60",		// 18
+	"ammo_762mmbox",	// 19
+	"weapon_m79",		// 20
+	"ammo_ARGrenades",  // 21
+	"weapon_handgrenade",// 22
+	"weapon_tripmine",	// 23
+	"weapon_satchel",	// 24 FIXME: not used in any of the original maps
+	"weapon_snark",		// 25
+};
+#elif !defined(HL1_DLL)
 	const char *CBreakable::pSpawnObjects[] =
 	{
 		NULL,						// 0
@@ -146,7 +176,14 @@ BEGIN_DATADESC( CBreakable )
 	DEFINE_FIELD( m_angle, FIELD_FLOAT ),
 	DEFINE_FIELD( m_iszGibModel, FIELD_STRING ),
 	DEFINE_FIELD( m_iszSpawnObject, FIELD_STRING ),
+#ifdef HOE_DLL
+	// the Wiki says func_breakable has "ExplodeDamage", "ExplodeRadius" *and* "explodemagnitude" which is wrong.
+	// This entity *never* exploded because m_explodeRadius was never set. -- tnb
+	DEFINE_KEYFIELD( m_explodeDamage, FIELD_FLOAT, "ExplodeDamage" ),
+	DEFINE_KEYFIELD( m_explodeRadius, FIELD_FLOAT, "ExplodeRadius" ),
+#else
 	DEFINE_KEYFIELD( m_ExplosionMagnitude, FIELD_INTEGER, "explodemagnitude" ),
+#endif
 	DEFINE_KEYFIELD( m_flPressureDelay, FIELD_FLOAT, "PressureDelay" ),
 	DEFINE_KEYFIELD( m_iMinHealthDmg, FIELD_INTEGER, "minhealthdmg" ),
 	DEFINE_FIELD( m_bTookPhysicsDamage, FIELD_BOOLEAN ),
@@ -427,7 +464,15 @@ void CBreakable::Precache( void )
 		pGibName = "WebGibs";
 		break;
 #else
+#ifdef HOE_DLL
+	case matCeilingTile:
+		pGibName = "CeilingTile"; // namc0 radio-room ceiling
+		break;
 
+	case matFlesh:
+		pGibName = "FleshGibs"; // spx_baby sacks
+		break;
+#endif
 	case matCinderBlock:
 		pGibName = "ConcreteChunks";
 		break;
@@ -1274,7 +1319,7 @@ bool CPushable::CreateVPhysics( void )
 // Pull the func_pushable
 void CPushable::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 {
-#ifdef HL1_DLL
+#if defined(HL1_DLL) || defined(HOE_DLL)
 	if( m_spawnflags & SF_PUSH_NO_USE )
 		return;
 
@@ -1282,7 +1327,10 @@ void CPushable::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE use
 	CBasePlayer *pPlayer = ToBasePlayer( pActivator );
 	if ( pPlayer )
 	{
+#ifdef HOE_DLL
+#else
 		if ( useType == USE_ON )
+#endif
 		{
 			PlayerPickupObject( pPlayer, this );
 		}

@@ -60,7 +60,11 @@
 #include "engine/IEngineSound.h"
 #include "tier1/strtools.h"
 #include "doors.h"
+#ifdef HOE_DLL
+#include "props_shared.h"
+#else
 #include "BasePropDoor.h"
+#endif
 #include "saverestore_utlvector.h"
 #include "npcevent.h"
 #include "movevars_shared.h"
@@ -198,7 +202,11 @@ ConVar	ai_shot_stats( "ai_shot_stats", "0" );
 ConVar	ai_shot_stats_term( "ai_shot_stats_term", "1000" );
 ConVar	ai_shot_bias( "ai_shot_bias", "1.0" );
 
+#ifdef HOE_DLL
+ConVar	ai_spread_defocused_cone_multiplier( "ai_spread_defocused_cone_multiplier","1.0" );
+#else
 ConVar	ai_spread_defocused_cone_multiplier( "ai_spread_defocused_cone_multiplier","3.0" );
+#endif
 ConVar	ai_spread_cone_focus_time( "ai_spread_cone_focus_time","0.6" );
 ConVar	ai_spread_pattern_focus_time( "ai_spread_pattern_focus_time","0.8" );
 
@@ -995,7 +1003,11 @@ void CAI_BaseNPC::NotifyFriendsOfDamage( CBaseEntity *pAttackerEntity )
 				{
 					if ( (originNpc.AsVector2D() - origin.AsVector2D()).LengthSqr() < NEAR_XY_SQ )
 					{
+#ifdef HOE_DLL // BUG
+						if ( (GetSquad() && (pNpc->GetSquad() == GetSquad())) || (IRelationType( pNpc ) == D_LI) )
+#else
 						if ( pNpc->GetSquad() == GetSquad() || IRelationType( pNpc ) == D_LI )
+#endif
 							pNpc->OnFriendDamaged( this, pAttacker );
 					}
 				}
@@ -1119,6 +1131,11 @@ float CAI_BaseNPC::GetHitgroupDamageMultiplier( int iHitGroup, const CTakeDamage
 	}
 }
 
+#ifdef HOE_DLL
+#else
+ConVar sk_bloodstream_multiplier("sk_bloodstream_multiplier", "5.0");
+#endif
+
 //=========================================================
 // TraceAttack
 //=========================================================
@@ -1188,6 +1205,15 @@ void CAI_BaseNPC::TraceAttack( const CTakeDamageInfo &info, const Vector &vecDir
 		{
 			// NPC's always bleed. Players only bleed in multiplayer.
 			SpawnBlood( ptr->endpos, vecDir, BloodColor(), subInfo.GetDamage() );// a little surface blood.
+
+#ifdef HOE_DLLxxx
+			// For bullet damage, do a stream of blood out the other direction
+			if ( subInfo.GetDamageType() & DMG_BULLET )
+			{
+				int amount = subInfo.GetDamage() * sk_bloodstream_multiplier.GetFloat();
+				UTIL_BloodStream( ptr->endpos, vecDir, BloodColor(), amount );
+			}
+#endif
 		}
 
 		TraceBleed( subInfo.GetDamage(), vecDir, ptr, subInfo.GetDamageType() );
@@ -2315,6 +2341,55 @@ CSound* CAI_BaseNPC::GetBestSound( int validTypes )
 {
 	if ( m_pLockedBestSound->m_iType != SOUND_NONE )
 		return m_pLockedBestSound;
+#ifdef HOE_DLL
+	// The best danger sound is the one I need to get farthest away from.
+	// This is to handle RPG rockets that play 2 danger sounds.
+	if ( validTypes & SOUND_DANGER )
+	{
+		float flBestDist = -MAX_COORD_RANGE*MAX_COORD_RANGE;
+		float flDist;
+		int iBestPriority = SOUND_PRIORITY_VERY_LOW;
+		
+		AISoundIter_t iter;
+		
+		CSound *pResult = NULL;
+		CSound *pCurrent = GetSenses()->GetFirstHeardSound( &iter );
+
+		Vector earPosition = EarPosition();
+		
+		while ( pCurrent )
+		{
+			if ( pCurrent->FIsSound() )
+			{
+				if( pCurrent->IsSoundType( validTypes ) && !ShouldIgnoreSound( pCurrent ) )
+				{
+					if( GetSoundPriority(pCurrent) >= iBestPriority )
+					{
+#ifdef HOE_SOUND_SHAPE
+						flDist = ( pCurrent->HackGetSoundOrigin( earPosition ) - earPosition ).LengthSqr();
+#else // HOE_SOUND_SHAPE
+						flDist = ( pCurrent->GetSoundOrigin() - earPosition ).LengthSqr();
+#endif // HOE_SOUND_SHAPE
+						flDist = pCurrent->Volume()*pCurrent->Volume() - flDist;
+
+						if ( flDist > flBestDist )
+						{
+							pResult = pCurrent;
+							flBestDist = flDist;
+
+							iBestPriority = GetSoundPriority(pCurrent);
+						}
+					}
+				}
+			}
+			
+			pCurrent = GetSenses()->GetNextHeardSound( &iter );
+		}
+		if ( pResult == NULL)
+			DevMsg( "Warning: NULL Return from GetBestSound\n" ); // condition previously set now no longer true. Have seen this when play too many sounds...	
+		return pResult;
+	}
+#endif // HOE_DLL
 	CSound *pResult = GetSenses()->GetClosestSound( false, validTypes );
 	if ( pResult == NULL)
 		DevMsg( "Warning: NULL Return from GetBestSound\n" ); // condition previously set now no longer true. Have seen this when play too many sounds...
@@ -5338,6 +5413,37 @@ bool CAI_BaseNPC::WeaponLOSCondition(const Vector &ownerPos, const Vector &targe
 				}
 			}
 		}
+#ifdef HOE_DLL
+		// Don't shoot anyone I like
+		if ( bHaveLOS )
+		{
+			if ( (CapabilitiesGet() & bits_CAP_NO_HIT_SQUADMATES) && GetEnemy() && GetSenses() )
+			{
+				AISightIter_t iter;
+				CBaseEntity *pTestEnt;
+
+				for ( pTestEnt = GetSenses()->GetFirstSeenEntity( &iter );
+					  pTestEnt != NULL;
+					  pTestEnt = GetSenses()->GetNextSeenEntity( &iter ) )
+				{
+					if ( !pTestEnt->MyCombatCharacterPointer() || IRelationType( pTestEnt ) != D_LI )
+						continue;
+
+					// Don't double-check squadmates.
+					if ( GetSquad() && pTestEnt->IsNPC() && GetSquad() == pTestEnt->MyNPCPointer()->GetSquad() )
+						continue;
+
+					// FIXME? IsSquadmateInSpread() checks pSquadmate->GetAbsOrigin() but PlayerInSpread() checks
+					// pPlayer->WorldSpaceCenter(). I check WorldSpaceCenter().
+					if ( PointInSpread( pTestEnt->MyCombatCharacterPointer(), ownerPos, targetPos, pTestEnt->WorldSpaceCenter(), spread, 8*12 ) )
+					{
+						bHaveLOS = false;
+						break;
+					}
+				}
+			}
+		}
+#endif
 	}
 	return bHaveLOS;
 }
@@ -5893,9 +5999,14 @@ CAI_BaseNPC *CAI_BaseNPC::CreateCustomTarget( const Vector &vecOrigin, float dur
 	// Set it up to remove itself, unless told to be infinite (-1)
 	if( duration > -1 )
 	{
+#ifdef HOE_DLL
+		// The SetHealth event does not cross level transitions.
+		pTarget->SetLifetime( duration );
+#else // HOE_DLL
 		variant_t value;
 		value.SetFloat(0);
 		g_EventQueue.AddEvent( pTarget, "SetHealth", value, duration, this, this );
+#endif // HOE_DLL
 	}
 
 	return pTarget;
@@ -6268,6 +6379,10 @@ void CAI_BaseNPC::AdvanceToIdealActivity(void)
 		// the ideal sequence.
 		if (nNextSequence != m_nIdealSequence)
 		{
+#ifdef HOE_DLL
+			if ( ai_sequence_debug.GetBool() == true && (m_debugOverlays & OVERLAY_NPC_SELECTED_BIT))
+				DevMsg("%s: TRANSITION %s -> %s -> %s\n", GetClassname(), GetSequenceName(GetSequence()), GetSequenceName(nNextSequence), GetSequenceName(m_nIdealSequence));
+#endif
 //			DevMsg("%s: TRANSITION %s -> %s -> %s\n", GetClassname(), GetSequenceName(GetSequence()), GetSequenceName(nNextSequence), GetSequenceName(m_nIdealSequence));
 
 			Activity eWeaponActivity = ACT_TRANSITION;
@@ -6297,6 +6412,10 @@ void CAI_BaseNPC::AdvanceToIdealActivity(void)
 	// Else go straight there to the ideal activity.
 	else
 	{
+#ifdef HOE_DLL
+		if ( ai_sequence_debug.GetBool() == true && (m_debugOverlays & OVERLAY_NPC_SELECTED_BIT))
+			DevMsg("%s: Unable to get from sequence %s to %s!\n", GetClassname(), GetSequenceName(GetSequence()), GetSequenceName(m_nIdealSequence));
+#endif
 		//DevMsg("%s: Unable to get from sequence %s to %s!\n", GetClassname(), GetSequenceName(GetSequence()), GetSequenceName(m_nIdealSequence));
 		SetActivity(m_IdealActivity);
 	}
@@ -8419,12 +8538,20 @@ void CAI_BaseNPC::HandleAnimEvent( animevent_t *pEvent )
 
 	case NPC_EVENT_OPEN_DOOR:
 		{
+#ifdef HOE_DLL
+			CBaseEntity *pEnt = (CBaseEntity *)GetNavigator()->GetPath()->GetCurWaypoint()->GetEHandleData();
+			IDoor *pDoor = dynamic_cast<IDoor *>(pEnt);
+			if ( pDoor != NULL )
+			{
+				OpenDoorNow( pDoor );
+			}
+#else
 			CBasePropDoor *pDoor = (CBasePropDoor *)(CBaseEntity *)GetNavigator()->GetPath()->GetCurWaypoint()->GetEHandleData();
 			if (pDoor != NULL)
 			{
 				OpenPropDoorNow( pDoor );
 			}
-	
+#endif
 			break;
 		}
 
@@ -9965,11 +10092,20 @@ CBaseEntity *CAI_BaseNPC::FindNamedEntity( const char *name, IEntityFindFilter *
 
 void CAI_BaseNPC::CorpseFallThink( void )
 {
+#ifdef HOE_DLL
+	// BUG - if a corpse starts precisely on the ground it never gets the
+	// FL_ONGROUND flag set. PhysicsToss sweeps the hull down through the
+	// ground and assumes the "entity is trapped in another solid".
+#endif
 	if ( GetFlags() & FL_ONGROUND )
 	{
 		SetThink ( NULL );
 
 		SetSequenceBox( );
+
+#ifdef HOE_DLL
+		SetMoveType( MOVETYPE_NONE );
+#endif
 	}
 	else
 	{
@@ -10793,6 +10929,9 @@ IMPLEMENT_SERVERCLASS_ST( CAI_BaseNPC, DT_AI_BaseNPC )
 	SendPropInt( SENDINFO( m_iSpeedModSpeed ) ),
 	SendPropBool( SENDINFO( m_bImportanRagdoll ) ),
 	SendPropFloat( SENDINFO( m_flTimePingEffect ) ),
+#ifdef HOE_DLL
+	SendPropEHandle( SENDINFO( m_hDeathSound ) ),
+#endif
 END_SEND_TABLE()
 
 //-------------------------------------
@@ -11535,6 +11674,14 @@ void CAI_BaseNPC::InputSetRelationship( inputdata_t &inputdata )
 //-----------------------------------------------------------------------------
 void CAI_BaseNPC::InputSetEnemyFilter( inputdata_t &inputdata )
 {
+#ifdef HOE_DLL
+	m_iszEnemyFilterName = inputdata.value.StringID(); // BUG in SDK? Wasn't changed, see Activate()
+	if ( m_iszEnemyFilterName == NULL_STRING )
+	{
+		m_hEnemyFilter = NULL;
+		return;
+	}
+#endif // HOE_DLL
 	// Get a handle to my enemy filter entity if there is one.
 	CBaseEntity *pFilter = gEntList.FindEntityByName( NULL, inputdata.value.StringID() );
 	m_hEnemyFilter = dynamic_cast<CBaseFilter*>(pFilter);
@@ -12053,7 +12200,11 @@ bool CAI_BaseNPC::ShouldFailNav( bool bMovementFailed )
 		if ( pEntity && pEntity->GetServerVehicle() )
 		{
 			// Vital allies never get stuck, and urgent moves cannot be blocked by a vehicle
+#ifdef HOE_DLL
+			if ( ClassifyPlayerAllyVital() || IsNavigationUrgent() )
+#else
 			if ( Classify() == CLASS_PLAYER_ALLY_VITAL || IsNavigationUrgent() )
+#endif
 				return false;
 		}
 	}
@@ -12122,6 +12273,222 @@ float CAI_BaseNPC::CalcYawSpeed( void )
 	// Negative values are invalud
 	return -1.0f;
 }
+
+#ifdef HOE_DLL
+
+bool CAI_BaseNPC::OnCalcBaseMove( AILocalMoveGoal_t *pMoveGoal,
+										float distClear,
+										AIMoveResult_t *pResult )
+{
+	if ( pMoveGoal->directTrace.pObstruction )
+	{
+		CBaseEntity *pEnt = pMoveGoal->directTrace.pObstruction;
+		IDoor *pDoor = dynamic_cast<IDoor *>(pEnt);
+		if ( pDoor && OnUpcomingDoor( pMoveGoal, pDoor, distClear, pResult ) )
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CAI_BaseNPC::OnObstructionPreSteer( AILocalMoveGoal_t *pMoveGoal,
+										float distClear,
+										AIMoveResult_t *pResult )
+{
+	if ( pMoveGoal->directTrace.pObstruction )
+	{
+		CBaseEntity *pEnt = pMoveGoal->directTrace.pObstruction;
+		IDoor *pDoor = dynamic_cast<IDoor *>(pEnt);
+		if ( pDoor && OnObstructingDoor( pMoveGoal, pDoor, distClear, pResult ) )
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool CAI_BaseNPC::OnObstructingDoor( AILocalMoveGoal_t *pMoveGoal,
+ 									 IDoor *pDoorIface,
+									 float distClear,
+									 AIMoveResult_t *pResult )
+{
+	if ( pMoveGoal->maxDist < distClear )
+		return false;
+
+	IDoorAccessor *pDoor = pDoorIface->GetDoorAccessor();
+
+	// By default, NPCs don't know how to open doors
+	if ( pDoor->IsDoorClosed() || pDoor->IsDoorClosing() )
+	{
+		if ( distClear < 0.1 )
+		{
+			*pResult = AIMR_BLOCKED_ENTITY;
+		}
+		else
+		{
+			pMoveGoal->maxDist = distClear;
+			*pResult = AIMR_OK;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : pMoveGoal - 
+//			pDoor - 
+//			distClear - 
+//			default - 
+//			spawn - 
+//			oldorg - 
+//			pfPosition - 
+//			neworg - 
+// Output : Returns true if movement is solved, false otherwise.
+//-----------------------------------------------------------------------------
+
+bool CAI_BaseNPC::OnUpcomingDoor( AILocalMoveGoal_t *pMoveGoal,
+ 										IDoor *pDoorIface,
+										float distClear,
+										AIMoveResult_t *pResult )
+{
+	IDoorAccessor *pDoor = pDoorIface->GetDoorAccessor();
+
+	if ( (pMoveGoal->flags & AILMG_TARGET_IS_GOAL) && pMoveGoal->maxDist < distClear )
+		return false;
+
+	if ( pMoveGoal->maxDist + GetHullWidth() * .25 < distClear )
+		return false;
+
+	CBaseEntity *pDoorEnt = pDoor->GetEntity();
+	Assert( pDoorEnt );
+
+	if (pDoorEnt == m_hOpeningDoor)
+	{
+		if ( pDoor->IsNPCOpening( this ) )
+		{
+			// We're in the process of opening the door, don't be blocked by it.
+			pMoveGoal->maxDist = distClear;
+			*pResult = AIMR_OK;
+			return true;
+		}
+		m_hOpeningDoor = NULL;
+	}
+
+	if ((CapabilitiesGet() & bits_CAP_DOORS_GROUP) && !pDoor->IsDoorLocked( this ) && (pDoor->IsDoorClosed() || pDoor->IsDoorClosing()))
+	{
+		AI_Waypoint_t *pOpenDoorRoute = NULL;
+
+		opendata_t opendata;
+		pDoor->GetNPCOpenData(this, opendata);
+		
+		// dvs: FIXME: local route might not be sufficient
+		pOpenDoorRoute = GetPathfinder()->BuildLocalRoute(
+			GetLocalOrigin(), 
+			opendata.vecStandPos,
+			NULL, 
+			bits_WP_TO_DOOR | bits_WP_DONT_SIMPLIFY, 
+			NO_NODE,
+			bits_BUILD_GROUND | bits_BUILD_IGNORE_NPCS,
+			0.0);
+		
+		if ( pOpenDoorRoute )
+		{
+			if ( AIIsDebuggingDoors(this) )
+			{
+				NDebugOverlay::Cross3D(opendata.vecStandPos + Vector(0,0,1), 32, 255, 255, 255, false, 1.0 );
+				Msg( "Opening door!\n" );
+			}
+
+			// Attach the door to the waypoint so we open it when we get there.
+			// dvs: FIXME: this is kind of bullshit, I need to find the exact waypoint to open the door
+			//		should I just walk the path until I find it?
+			pOpenDoorRoute->m_hData = pDoorEnt;
+
+			GetNavigator()->GetPath()->PrependWaypoints( pOpenDoorRoute );
+
+			m_hOpeningDoor = pDoorEnt;
+			pMoveGoal->maxDist = distClear;
+			*pResult = AIMR_CHANGE_TYPE;
+				
+			return true;
+		}
+		else
+			AIDoorDebugMsg( this, "Failed create door route!\n" );
+	}
+
+	return false;
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Called by the navigator to initiate the opening of a prop_door
+//			that is in our way.
+//-----------------------------------------------------------------------------
+void CAI_BaseNPC::OpenDoorBegin( IDoor *pDoor )
+{
+	// dvs: not quite working, disabled for now.
+	//opendata_t opendata;
+	//pDoor->GetNPCOpenData(this, opendata);
+	//
+	//if (HaveSequenceForActivity(opendata.eActivity))
+	//{
+	//	SetIdealActivity(opendata.eActivity);
+	//}
+	//else
+	{
+		// We don't have an appropriate sequence, just open the door magically.
+		OpenDoorNow( pDoor );
+	}
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Called when we are trying to open a prop_door and it's time to start
+//			the door moving. This is called either in response to an anim event
+//			or as a fallback when we don't have an appropriate open activity.
+//-----------------------------------------------------------------------------
+void CAI_BaseNPC::OpenDoorNow( IDoor *pDoorIface )
+{
+	IDoorAccessor *pDoor = pDoorIface->GetDoorAccessor();
+
+	// Start the door moving.
+	pDoor->NPCOpenDoor(this);
+
+	// Wait for the door to finish opening before trying to move through the doorway.
+	m_flMoveWaitFinished = gpGlobals->curtime + pDoor->GetOpenInterval();
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Called when the door we were trying to open becomes fully open.
+// Input  : pDoor - 
+//-----------------------------------------------------------------------------
+void CAI_BaseNPC::OnDoorFullyOpen( IDoor *pDoor )
+{
+	// We're done with the door.
+	m_hOpeningDoor = NULL;
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Called when the door we were trying to open becomes blocked before opening.
+// Input  : pDoor - 
+//-----------------------------------------------------------------------------
+void CAI_BaseNPC::OnDoorBlocked( IDoor *pDoor )
+{
+	// dvs: FIXME: do something so that we don't loop forever trying to open this door
+	//		not clearing out the door handle will cause the NPC to invalidate the connection
+	// We're done with the door.
+	//m_hOpeningDoor = NULL;
+}
+
+#else // HOE_DLL
 
 bool CAI_BaseNPC::OnCalcBaseMove( AILocalMoveGoal_t *pMoveGoal,
 										float distClear,
@@ -12327,6 +12694,7 @@ void CAI_BaseNPC::OnDoorBlocked(CBasePropDoor *pDoor)
 	//m_hOpeningDoor = NULL;
 }
 
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Template NPCs are marked as templates by the level designer. They

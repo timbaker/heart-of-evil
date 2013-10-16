@@ -6,7 +6,11 @@
 
 #include "cbase.h"
 
+#ifdef HOE_DLL
+#include "doors.h"
+#else
 #include "BasePropDoor.h"
+#endif
 
 #include "ai_basehumanoid.h"
 #include "ai_blended_movement.h"
@@ -139,7 +143,11 @@ bool CAI_BaseHumanoid::OnMoveBlocked( AIMoveResult_t *pResult )
 		if ( pBlocker->GetMoveType() == MOVETYPE_VPHYSICS && 
 			 pBlocker != GetGroundEntity() && 
 			 !pBlocker->IsNavIgnored() &&
+#ifdef HOE_DLL
+			 !dynamic_cast<IDoor *>(pBlocker) &&
+#else
 			 !dynamic_cast<CBasePropDoor *>(pBlocker) &&
+#endif
 			 pBlocker->VPhysicsGetObject() && 
 			 pBlocker->VPhysicsGetObject()->IsMoveable() && 
 			 ( pBlocker->VPhysicsGetObject()->GetMass() <= 35.0 + massBonus + 0.1 || 

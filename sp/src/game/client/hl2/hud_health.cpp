@@ -21,6 +21,9 @@
 #include <vgui/ISurface.h>
 #include <vgui/ISystem.h>
 #include <vgui_controls/AnimationController.h>
+#ifdef HOE_DLL
+#include "vgui_controls/ImagePanel.h"
+#endif
 
 #include <vgui/ILocalize.h>
 
@@ -56,6 +59,17 @@ private:
 	int		m_iHealth;
 	
 	int		m_bitsDamage;
+#ifdef HOE_DLLxxx // FIXME: need a scaleable health image
+	CPanelAnimationVarAliasType( float, image_xpos, "image_xpos", "8", "proportional_float" );
+	CHudTexture	*m_icon;
+	virtual void PaintLabel()
+	{
+		if ( m_icon )
+		{
+			m_icon->DrawSelf( image_xpos, (GetTall() - m_icon->Height()) / 2, gHUD.m_clrNormal );
+		}
+	}
+#endif
 };	
 
 DECLARE_HUDELEMENT( CHudHealth );
@@ -105,6 +119,9 @@ void CHudHealth::Reset()
 void CHudHealth::VidInit()
 {
 	Reset();
+#ifdef HOE_DLLxxx
+	m_icon = gHUD.GetIcon( "health" );
+#endif
 }
 
 //-----------------------------------------------------------------------------

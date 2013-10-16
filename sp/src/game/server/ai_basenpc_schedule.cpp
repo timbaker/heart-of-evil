@@ -606,6 +606,13 @@ void CAI_BaseNPC::MaintainSchedule ( void )
 			{
 				// Put our conditions back the way they were after GatherConditions,
 				// but add in COND_SCHEDULE_DONE.
+#ifdef HOE_DLL
+				if ( m_ConditionsPreIgnore.IsBitSet( COND_TASK_FAILED ) )
+				{
+					DevWarning( "COND_TASK_FAILED was saved in m_ConditionsPreIgnore, removing!\n" );
+					m_ConditionsPreIgnore.Clear( COND_TASK_FAILED );
+				}
+#endif
 				m_Conditions = m_ConditionsPreIgnore;
 				SetCondition( COND_SCHEDULE_DONE );
 
@@ -893,6 +900,44 @@ bool CAI_BaseNPC::FindCoverPosInRadius( CBaseEntity *pEntity, const Vector &goal
 
 bool CAI_BaseNPC::FindCoverPos( CSound *pSound, Vector *pResult )
 {
+#ifdef HOE_DLL
+	// For fleeing rockets, move perpendicular to the incoming rocket
+	Vector vecRay = pSound->GetSoundRay();
+	if ( vecRay != vec3_origin )
+	{
+		// The ray is a line segment, I want an infinite line.
+		pSound->SetSoundRay( vecRay * 100 );
+		Vector vPointOnLine = pSound->GetSoundReactOrigin();
+		pSound->SetSoundRay( vecRay );
+
+		// Get perpedicular to the ray.
+		vecRay.z = 0;
+		Vector right, up;
+		vecRay.NormalizeInPlace();
+		VectorVectors( vecRay, right, up );
+
+		Vector vMoveAway = right;
+		if ( GetAbsOrigin().AsVector2D().DistTo( (vPointOnLine + right).AsVector2D() ) >
+			GetAbsOrigin().AsVector2D().DistTo( (vPointOnLine - right).AsVector2D() ) )
+			vMoveAway = -right;
+
+		float flDist = GetAbsOrigin().AsVector2D().DistTo( vPointOnLine.AsVector2D() );
+
+		if ( GetNavigator()->FindVectorGoal( pResult, vMoveAway, pSound->Volume() - flDist, pSound->Volume() - flDist, true ) )
+		{
+//			NDebugOverlay::HorzArrow( vPointOnLine, vPointOnLine + vMoveAway * 100, 16, 0,0,255,128, false, 2.0f );
+			return true;
+		}
+
+		// This will take us through the ray which could be a bad thing
+		if ( GetNavigator()->FindVectorGoal( pResult, -vMoveAway, pSound->Volume() - flDist, pSound->Volume() + flDist, true ) )
+		{
+//			NDebugOverlay::HorzArrow( vPointOnLine, vPointOnLine + vMoveAway * 100, 16, 0,0,255,128, false, 2.0f );
+			return true;
+		}
+	}
+#endif // HOE_DLL
+
 	if ( !GetTacticalServices()->FindCoverPos( pSound->GetSoundReactOrigin(), 
 												pSound->GetSoundReactOrigin(), 
 												MIN( pSound->Volume(), 120.0 ), 
@@ -2895,6 +2940,12 @@ void CAI_BaseNPC::StartTask( const Task_t *pTask )
 			if ( m_hTargetEnt != NULL )
 			{
 				SetLocalOrigin( m_hTargetEnt->GetAbsOrigin() );	// Plant on target
+#ifdef HOE_DLL
+				if ( m_hTargetEnt == m_hCine )
+				{
+					m_hCine->OnArrival();
+				}
+#endif // HOE_DLL
 			}
 
 			TaskComplete();
@@ -3952,6 +4003,18 @@ void CAI_BaseNPC::RunTask( const Task_t *pTask )
 				{
 					m_hCine->SynchronizeSequence( this );
 				}
+#ifdef HOE_DLL
+				else if ( m_hCine &&
+						  m_hCine->IsPlayingAction() &&
+						  m_hCine->ShouldLoopActionSequence() &&
+						  !SequenceLoops() )
+				{
+					// If we specified that the action sequence should loop, then
+					// loop it if it is not marked as a looping sequence in the .qc file.
+					ResetSequenceInfo();
+					SetCycle( 0.0 );
+				}
+#endif
 			}
 			break;
 		}
@@ -4037,6 +4100,13 @@ void CAI_BaseNPC::RunTask( const Task_t *pTask )
 	case TASK_WALK_PATH_WITHIN_DIST:
 	case TASK_RUN_PATH_WITHIN_DIST:
 		{
+#ifdef HOE_DLL
+			if ( GetNavigator()->GetGoalType() == GOALTYPE_NONE )
+			{
+				TaskComplete();
+				break;
+			}
+#endif // HOE_DLL
 			Vector vecDiff;
 
 			vecDiff = GetLocalOrigin() - GetNavigator()->GetGoalPos();
@@ -4695,6 +4765,11 @@ int CAI_BaseNPC::SelectFlinchSchedule()
 	if ( HaveSequenceForActivity( iFlinchActivity ) )
 		return SCHED_BIG_FLINCH;
 
+#ifdef HOE_DLL // restored for HOE
+	iFlinchActivity = GetFlinchActivity( false, false );
+	if ( HaveSequenceForActivity( iFlinchActivity ) )
+		return SCHED_SMALL_FLINCH;
+#else
 	/*
 	// Not used anymore, because gesture flinches are played instead for heavy damage
 	// taken shortly after we've already flinched full.
@@ -4703,6 +4778,7 @@ int CAI_BaseNPC::SelectFlinchSchedule()
 	if ( HaveSequenceForActivity( iFlinchActivity ) )
 		return SCHED_SMALL_FLINCH;
 	*/
+#endif
 
 	return SCHED_NONE;
 }

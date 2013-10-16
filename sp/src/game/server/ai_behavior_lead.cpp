@@ -136,7 +136,11 @@ bool CAI_LeadBehavior::IsNavigationUrgent( void )
 #if defined( HL2_DLL )
 	if( HasGoal() && !hl2_episodic.GetBool() )
 	{
+#ifdef HOE_DLL
+		return (GetOuter()->ClassifyPlayerAllyVital());
+#else // HOE_DLL
 		return (GetOuter()->Classify() == CLASS_PLAYER_ALLY_VITAL);
+#endif // HOE_DLL
 	}
 #endif
 	return BaseClass::IsNavigationUrgent();
@@ -627,6 +631,17 @@ int CAI_LeadBehavior::SelectSchedule()
 			DevMsg( GetOuter(), "Follower lagging. Spoke CATCHUP.\n");
 
 			Speak( TLK_LEAD_CATCHUP );
+#ifdef HOE_DLL
+			// Hacker so namc4 maze chumtoad can blink his headlight
+			if ( GetOuter() )
+			{
+				CAI_LeadBehaviorHandler *handler = dynamic_cast<CAI_LeadBehaviorHandler *>( GetOuter() );
+				if ( handler != NULL )
+				{
+					handler->OnEvent( 100 );
+				}
+			}
+#endif // HOE_DLL
 			return SCHED_LEAD_PAUSE;
 		}
 		else

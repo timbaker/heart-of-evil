@@ -96,6 +96,9 @@ private:
 	int										m_nAttachmentID;		// Goal attachment
 	CUtlVector<CPassengerSeatTransition>	m_EntryTransitions;		// Entry information
 	CUtlVector<CPassengerSeatTransition>	m_ExitTransitions;		// Exit information
+#ifdef HOE_DLL
+	CUtlVector<CPassengerSeatTransition>	m_IdleAnims;			// Idle information
+#endif // HOE_DLL
 
 	friend class CBaseServerVehicle;
 };
@@ -254,6 +257,12 @@ public:
 	virtual void			SoundUpdate( vbs_sound_update_t &params );
 	virtual void			PlaySound( vehiclesound iSound );
 	virtual void			StopSound( vehiclesound iSound );
+#ifdef HOE_DLL
+	virtual void			PlayLoopingSound( sound_states iState );
+	virtual bool			PlayerEntryExitAffectsSound( void ) { return true; }
+	virtual void			PlayStartEngineSound( void );
+	virtual void			PlayStopEngineSound( void );
+#endif
 	virtual void 			RecalculateSoundGear( vbs_sound_update_t &params );
 	void					SetVehicleVolume( float flVolume ) { m_flVehicleVolume = clamp( flVolume, 0.0f, 1.0f ); }
 

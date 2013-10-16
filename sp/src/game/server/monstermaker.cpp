@@ -452,13 +452,24 @@ void CNPCMaker::MakeNPC( void )
 
 	DispatchSpawn( pent );
 	pent->SetOwnerEntity( this );
-	DispatchActivate( pent );
-
+#ifdef HOE_DLL
+	// Moved this before Activate() gets called. Huey needs to know its name so it can lookup
+	// logic_huey_deploy entities that apply to it.
 	if ( m_ChildTargetName != NULL_STRING )
 	{
 		// if I have a netname (overloaded), give the child NPC that name as a targetname
 		pent->SetName( m_ChildTargetName );
 	}
+#endif
+	DispatchActivate( pent );
+
+#ifndef HOE_DLL
+	if ( m_ChildTargetName != NULL_STRING )
+	{
+		// if I have a netname (overloaded), give the child NPC that name as a targetname
+		pent->SetName( m_ChildTargetName );
+	}
+#endif
 
 	ChildPostSpawn( pent );
 

@@ -290,6 +290,13 @@ void CAI_Enemies::RefreshMemories(void)
 			delete pMemory;
 			m_Map.RemoveAt(i);
 		}
+#ifdef HOE_DLL
+		else if ( pMemory->bEludedMe == true )
+		{
+			// Don't update the location of an enemy that eluded me.  This is to handle vortigaunts
+			// teleporting.
+		}
+#endif
 		else if ( pMemory->hEnemy )
 		{
 			if ( gpGlobals->curtime <= pMemory->timeLastSeen + m_flFreeKnowledgeDuration )

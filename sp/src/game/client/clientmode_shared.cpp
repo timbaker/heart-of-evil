@@ -65,6 +65,14 @@ extern ConVar replay_rendersetting_renderglow;
 #include "econ_item_description.h"
 #endif
 
+#ifdef HOE_DLL
+#include <engine/ivdebugoverlay.h>
+#endif
+#ifdef HOE_THIRDPERSON
+#include "prediction.h"
+#include "ivieweffects.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -80,6 +88,10 @@ ConVar cl_drawhud( "cl_drawhud", "1", FCVAR_CHEAT, "Enable the rendering of the 
 ConVar hud_takesshots( "hud_takesshots", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE, "Auto-save a scoreboard screenshot at the end of a map." );
 ConVar hud_freezecamhide( "hud_freezecamhide", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE, "Hide the HUD during freeze-cam" );
 ConVar cl_show_num_particle_systems( "cl_show_num_particle_systems", "0", FCVAR_CLIENTDLL, "Display the number of active particle systems." );
+#if defined(HOE_THIRDPERSON) && defined(HOE_IRONSIGHTS)
+ConVar hoe_aimmode_offset_x( "hoe_aimmode_offset_x", "20.0", FCVAR_ARCHIVE );
+ConVar hoe_aimmode_offset_y( "hoe_aimmode_offset_y", "5.0", FCVAR_ARCHIVE );
+#endif
 
 extern ConVar v_viewmodel_fov;
 extern ConVar voice_modenable;
@@ -403,6 +415,11 @@ void ClientModeShared::OverrideView( CViewSetup *pSetup )
 
 	pPlayer->OverrideView( pSetup );
 
+#ifdef HOE_THIRDPERSON
+	if ( pPlayer->GetVehicle() != NULL )
+		return;
+#endif
+
 	if( ::input->CAM_IsThirdPerson() )
 	{
 		Vector cam_ofs = g_ThirdPersonManager.GetCameraOffsetAngles();
@@ -428,6 +445,12 @@ void ClientModeShared::OverrideView( CViewSetup *pSetup )
 		VectorMA( pSetup->origin, -cam_ofs_distance[0], camForward, pSetup->origin );
 		VectorMA( pSetup->origin, cam_ofs_distance[1], camRight, pSetup->origin );
 		VectorMA( pSetup->origin, cam_ofs_distance[2], camUp, pSetup->origin );
+
+#if defined(HOE_THIRDPERSON)
+		::input->CAM_GetCameraOffset2( cam_ofs );
+		VectorMA( pSetup->origin, cam_ofs.x, camRight, pSetup->origin );
+		VectorMA( pSetup->origin, cam_ofs.y, camUp, pSetup->origin );
+#endif
 
 		// Override angles from third person camera
 		VectorCopy( camAngles, pSetup->angles );

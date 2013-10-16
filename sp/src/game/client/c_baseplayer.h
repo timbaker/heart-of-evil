@@ -413,6 +413,12 @@ public:
 	// Data common to all other players, too
 	CPlayerState			pl;
 
+#ifdef HOE_THIRDPERSON
+	bool					m_fThirdPerson;
+	bool					m_fThirdPersonAimMode;
+	float					m_flThirdPersonAimModeTime;
+#endif // HOE_THIRDPERSON
+
 	// Player FOV values
 	int						m_iFOV;				// field of view
 	int						m_iFOVStart;		// starting value of the FOV changing over time (client only)

@@ -38,4 +38,8 @@
 #define IN_GRENADE2		(1 << 24)	// grenade 2
 #define	IN_ATTACK3		(1 << 25)
 
+#ifdef HOE_IRONSIGHTS
+#define IN_IRONSIGHTS IN_GRENADE1
+#endif // HOE_IRONSIGHTS
+
 #endif // IN_BUTTONS_H

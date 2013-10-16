@@ -308,7 +308,10 @@ void CPhysForce::ScaleForce( float scale )
 {
 	if ( !m_pController )
 		ForceOn();
-
+#ifdef HOE_DLL
+	if ( !m_pController )
+		return;
+#endif // HOE_DLL
 	m_integrator.ScaleConstantForce( scale );
 	m_pController->WakeObjects();
 }
@@ -869,7 +872,9 @@ public:
 		m_angularLimit = inputdata.value.Float();
 	}
 
+#ifndef HOE_DLL
 private:	
+#endif // HOE_DLL
 	friend CBaseEntity *CreateKeepUpright( const Vector &vecOrigin, const QAngle &vecAngles, CBaseEntity *pOwner, float flAngularLimit, bool bActive );
 
 	Vector						m_worldGoalAxis;
@@ -1076,3 +1081,66 @@ AngularImpulse ComputeRotSpeedToAlignAxes( const Vector &testAxis, const Vector 
 	return angular * len;
 }
 
+#ifdef HOE_DLL
+class CKeepForward : public CKeepUpright
+{
+	DECLARE_CLASS( CKeepForward, CKeepUpright );
+public:
+
+	void Spawn( void )
+	{
+		BaseClass::Spawn();
+
+		// align the object's local Y axis
+		m_localTestAxis.Init( 0, 1, 0 );
+
+		// Use our Forward axis so mapmakers can orient us arbitrarily
+		GetVectors( &m_worldGoalAxis, NULL, NULL );
+	}
+
+	void Activate( void )
+	{
+		bool bRestoring = m_pController != NULL;
+
+		BaseClass::Activate();
+
+		if ( bRestoring )
+			return;
+
+		// Hack: Use the upper body physobj and the pelvis physobj of a ragdoll
+		// FIXME: allow user of this ent to pass an attachment to get the physobj from.
+		extern bool Ragdoll_IsPropRagdoll( CBaseEntity *pEntity );
+		if ( m_pController && m_attachedObject && Ragdoll_IsPropRagdoll( m_attachedObject ) )
+		{
+			IPhysicsObject *list[VPHYSICS_MAX_OBJECT_LIST_COUNT];
+			int listCount = m_attachedObject->VPhysicsGetObjectList( list, ARRAYSIZE(list) );
+			if ( listCount > 1 )
+			{
+//				m_pController->ClearObjects();
+				m_pController->AttachObject( list[1], false );
+			}
+		}
+	}
+};
+
+LINK_ENTITY_TO_CLASS( phys_keepforward, CKeepForward );
+
+CBaseEntity *CreateKeepForward( const Vector &vecOrigin, const QAngle &vecAngles, CBaseEntity *pOwner, float flAngularLimit, bool bActive )
+{
+	CKeepForward *pKeepForward = (CKeepForward*)CBaseEntity::Create( "phys_keepforward", vecOrigin, vecAngles, pOwner );
+	if ( pKeepForward )
+	{
+		pKeepForward->m_attachedObject = pOwner;
+		pKeepForward->m_angularLimit = flAngularLimit;
+		if ( !bActive )
+		{
+			pKeepForward->AddSpawnFlags( SF_KEEPUPRIGHT_START_INACTIVE );
+		}
+		pKeepForward->Spawn();
+		pKeepForward->Activate();
+	}
+
+	return pKeepForward;
+}
+
+#endif // HOE_DLL

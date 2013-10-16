@@ -702,6 +702,14 @@ void CViewRender::SetUpViews()
 				{
 					VectorCopy( ve->GetAbsOrigin(), view.origin );
 					VectorCopy( ve->GetAbsAngles(), view.angles );
+#if defined(HOE_DLL) && defined( CLIENT_DLL )
+					if ( !prediction->InPrediction() )
+					{
+						// Shake it up baby!
+						vieweffects->CalcShake();
+						vieweffects->ApplyShake( m_View.origin, m_View.angles, 1.0 );
+					}
+#endif
 				}
 			}
 

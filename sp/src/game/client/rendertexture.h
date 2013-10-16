@@ -28,6 +28,10 @@ ITexture *GetSmallBuffer1( void );							// quarter-sized texture, same fmt as s
 
 ITexture *GetTeenyTexture(int which);						// tiny 32x32 texture, always 8888
 
+#ifdef HOE_DLL
+ITexture *GetScopeTexture( void );
+#endif // HOE_DLL
+
 void ReleaseRenderTargets( void );
 
 #endif // RENDERTARGETS_H

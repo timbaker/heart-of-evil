@@ -123,6 +123,16 @@ void CHudFlashlight::Paint()
 	int chunkCount = m_flBarWidth / (m_flBarChunkWidth + m_flBarChunkGap);
 	int enabledChunks = (int)((float)chunkCount * (pPlayer->m_HL2Local.m_flFlashBattery * 1.0f/100.0f) + 0.5f );
 
+#ifdef HOE_DLL
+	// Don't draw anything if we're fully charged
+	if ( bIsOn == false && chunkCount == enabledChunks )
+	{
+		SetPaintBackgroundEnabled( false );
+		return;
+	}
+	SetPaintBackgroundEnabled( true );
+#endif // HOE_DLL
+
 	Color clrFlashlight;
 	clrFlashlight = ( enabledChunks < ( chunkCount / 4 ) ) ? gHUD.m_clrCaution : gHUD.m_clrNormal;
 	clrFlashlight[3] = ( bIsOn ) ? 255: 32;
@@ -135,9 +145,11 @@ void CHudFlashlight::Paint()
 	surface()->DrawSetTextPos( m_IconX, m_IconY );
 	surface()->DrawUnicodeChar( pState );
 
+#ifndef HOE_DLL
 	// Don't draw the progress bar is we're fully charged
 	if ( bIsOn == false && chunkCount == enabledChunks )
 		return;
+#endif // HOE_DLL
 
 	// draw the suit power bar
 	surface()->DrawSetColor( clrFlashlight );

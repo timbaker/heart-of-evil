@@ -20,6 +20,11 @@
 #define		SF_BRUSH_HURT		32// rotating brush that inflicts pain based on rotation speed
 #define		SF_ROTATING_NOT_SOLID	64	// some special rotating objects are not solid.
 
+#ifdef HOE_DLL
+#undef SF_BRUSH_ROTATE_CLIENTSIDE // same as SF_BRUSH_ACCDCC
+#define SF_BRUSH_ROTATE_CLIENTSIDE 1024
+#endif
+
 // =================== FUNC_WALL ==============================================
 class CFuncWall : public CBaseEntity
 {
@@ -414,7 +419,11 @@ public:
 	void Blocked( CBaseEntity *pOther );
 	void SetTargetSpeed( float flSpeed );
 	void UpdateSpeed( float flNewSpeed );
-	
+#ifdef HOE_DLL
+	void Activate( void );
+	void StartSound( void );
+#endif
+
 	int	 DrawDebugTextOverlays(void);
 
 	DECLARE_DATADESC();
@@ -786,6 +795,25 @@ void CFuncRotating::Precache( void )
 	}
 	PrecacheScriptSound( STRING( m_NoiseRunning ) );
 	
+#ifdef HOE_DLL
+	// BUG - if ent was spinning *down* it would suddenly stop after 1.5 seconds when a savegame was restored.
+	if (GetLocalAngularVelocity() != vec3_angle )
+	{
+		//
+		// If fan was spinning, and we went through transition or save/restore,
+		// make sure we restart the sound.  1.5 sec delay is a magic number.
+		//
+		if ( fabs(m_flSpeed) <= fabs(m_flTargetSpeed) )
+			SetMoveDone( &CFuncRotating::SpinUpMove );
+		else
+			SetMoveDone( &CFuncRotating::SpinDownMove );
+		SetMoveDoneTime( 1.5 );
+	}
+
+	// So make sure we keep the current SetMoveDone() function and SetMoveDoneTime() time.
+
+	// Moved starting the sound to Activate()
+#else // HOE_DLL
 	if (GetLocalAngularVelocity() != vec3_angle )
 	{
 		//
@@ -795,6 +823,7 @@ void CFuncRotating::Precache( void )
 		SetMoveDone( &CFuncRotating::SpinUpMove );
 		SetMoveDoneTime( 1.5 );
 	}
+#endif // HOE_DLL
 }
 
 
@@ -866,6 +895,36 @@ void CFuncRotating::RampPitchVol( void )
 	EmitSound( filter, entindex(), ep );
 }
 
+#ifdef HOE_DLL
+
+//-----------------------------------------------------------------------------
+void CFuncRotating::Activate( void )
+{
+	BaseClass::Activate();
+
+//	if ( m_flSpeed != 0 )
+//		StartSound();
+}
+
+//-----------------------------------------------------------------------------
+void CFuncRotating::StartSound( void )
+{
+	// Starting to move - emit the sound.
+	CPASAttenuationFilter filter( GetAbsOrigin(), m_flAttenuation );
+	filter.MakeReliable();
+
+	EmitSound_t ep;
+	ep.m_nChannel = CHAN_STATIC;
+	ep.m_pSoundName = STRING(m_NoiseRunning);
+	ep.m_flVolume = 0.01;
+	ep.m_SoundLevel = ATTN_TO_SNDLVL( m_flAttenuation );
+	ep.m_nPitch = FANPITCHMIN;
+
+	EmitSound( filter, entindex(), ep );
+	RampPitchVol();
+}
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 // Output : float
@@ -936,6 +995,10 @@ void CFuncRotating::UpdateSpeed( float flNewSpeed )
 
 	if ( ( flOldSpeed == 0 ) && ( m_flSpeed != 0 ) )
 	{
+#ifdef HOE_DLL
+		// Starting to move - emit the sound.
+		StartSound();
+#else
 		// Starting to move - emit the sound.
 		CPASAttenuationFilter filter( GetAbsOrigin(), m_flAttenuation );
 		filter.MakeReliable();
@@ -949,6 +1012,7 @@ void CFuncRotating::UpdateSpeed( float flNewSpeed )
 
 		EmitSound( filter, entindex(), ep );
 		RampPitchVol();
+#endif
 	}
 	else if ( ( flOldSpeed != 0 ) && ( m_flSpeed == 0 ) )
 	{

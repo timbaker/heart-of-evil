@@ -151,11 +151,15 @@ public:
 
 	int				BloodColor( void ) { return DONT_BLEED; }
 
+#ifdef HOE_DLL
+	Class_T			Classify( void ) { return CLASS_NONE; }
+#else // HOE_DLL
 #ifdef HL2_DLL
 	Class_T			Classify( void ) { return CLASS_METROPOLICE; }
 #else
 	Class_T			Classify( void ) { return CLASS_NONE; }
 #endif
+#endif // HOE_DLL
 
 	Disposition_t	IRelationType( CBaseEntity *pTarget );
 

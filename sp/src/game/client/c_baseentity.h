@@ -616,6 +616,13 @@ public:
 	static void RemoveRecipientsIfNotCloseCaptioning( C_RecipientFilter& filter );
 	static void EmitCloseCaption( IRecipientFilter& filter, int entindex, char const *token, CUtlVector< Vector >& soundorigins, float duration, bool warnifmissing = false );
 
+#ifdef HOE_DLL
+	// close caption icon
+	void SetCCImageName( string_t name ) { m_iszCCImageName = name; }
+	string_t GetCCImageName( void ) { return m_iszCCImageName; }
+	string_t m_iszCCImageName;
+#endif // HOE_DLL
+
 	// Moves all aiments into their correct position for the frame
 	static void	MarkAimEntsDirty();
 	static void CalcAimEntPositions();

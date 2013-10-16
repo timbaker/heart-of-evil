@@ -11,6 +11,9 @@
 #include "game.h"
 #include "in_buttons.h"
 #include "gamestats.h"
+#ifdef HOE_THIRDPERSON
+#include "hl2_player.h"
+#endif // HOE_THIRDPERSON
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -94,7 +97,15 @@ void CHLMachineGun::PrimaryAttack( void )
 	info.m_vecSpread = pPlayer->GetAttackSpread( this );
 	info.m_flDistance = MAX_TRACE_LENGTH;
 	info.m_iAmmoType = m_iPrimaryAmmoType;
+#ifdef HOE_IRONSIGHTS
+	// No tracer when ironsights are active
+	if ( IsIronSightsActive() == false )
+		info.m_iTracerFreq = 2;
+	else
+		info.m_iTracerFreq = 0;
+#else // HOE_IRONSIGHTS
 	info.m_iTracerFreq = 2;
+#endif // HOE_IRONSIGHTS
 	FireBullets( info );
 
 	//Factor in the view kick
@@ -110,6 +121,9 @@ void CHLMachineGun::PrimaryAttack( void )
 
 	SendWeaponAnim( GetPrimaryAttackActivity() );
 	pPlayer->SetAnimation( PLAYER_ATTACK1 );
+#ifdef HOE_THIRDPERSON
+	ToHL2Player(GetOwner())->DoAnimationEvent( PLAYERANIMEVENT_ATTACK_PRIMARY );
+#endif
 
 	// Register a muzzleflash for the AI
 	pPlayer->SetMuzzleFlashTime( gpGlobals->curtime + 0.5 );

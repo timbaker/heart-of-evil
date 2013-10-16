@@ -167,6 +167,10 @@ BEGIN_RECV_TABLE(C_BaseCombatCharacter, DT_BaseCombatCharacter)
 	RecvPropInt( RECVINFO( m_iPowerups ) ),
 #endif
 
+#ifdef HOE_DLL
+	RecvPropInt( RECVINFO( m_bloodColor ) ),
+#endif // HOE_DLL
+
 END_RECV_TABLE()
 
 

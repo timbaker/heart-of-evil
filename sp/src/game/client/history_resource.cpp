@@ -330,8 +330,11 @@ void CHudHistoryResource::Paint( void )
 			const CHudTexture *itemIcon = NULL;
 			const CHudTexture *itemAmmoIcon = NULL;
 			int iAmount = 0;
+#ifdef HOE_DLL
+			bool bHalfHeight = false;
+#else // HOE_DLL
 			bool bHalfHeight = true;
-
+#endif // HOE_DLL
 			switch ( m_PickupHistory[i].type )
 			{
 			case HISTSLOT_AMMO:
@@ -367,7 +370,22 @@ void CHudHistoryResource::Paint( void )
 				break;
 			case HISTSLOT_AMMODENIED:
 				{
+#ifdef HOE_DLL
+					const FileWeaponInfo_t *pWpnInfo = gWR.GetWeaponFromAmmo( m_PickupHistory[i].iId );
+					if ( pWpnInfo && ( pWpnInfo->iMaxClip1 >= 0 || pWpnInfo->iMaxClip2 >= 0 ) )
+					{
+						// The weapon will be the main icon, and the ammo the smaller
+						itemIcon = pWpnInfo->iconSmall;
+						itemAmmoIcon = gWR.GetAmmoIconFromWeapon( m_PickupHistory[i].iId );
+					}
+					else
+					{
+						itemIcon = gWR.GetAmmoIconFromWeapon( m_PickupHistory[i].iId );
+						itemAmmoIcon = NULL;
+					}
+#else // HOE_DLL
 					itemIcon = gWR.GetAmmoIconFromWeapon( m_PickupHistory[i].iId );
+#endif // HOE_DLL
 					iAmount = 0;
 					bUseAmmoFullMsg = true;
 					// display as red
@@ -432,7 +450,12 @@ void CHudHistoryResource::Paint( void )
 
 			if ( itemAmmoIcon )
 			{
+#ifdef HOE_DLL
+				itemAmmoIcon->DrawSelf( xpos - ( itemAmmoIcon->Width() * 1.25f ),
+					ypos - (itemAmmoIcon->Height() - itemIcon->Height()) / 2, clr );
+#else // HOE_DLL
 				itemAmmoIcon->DrawSelf( xpos - ( itemAmmoIcon->Width() * 1.25f ), ypos, clr );
+#endif // HOE_DLL
 			}
 
 			if ( iAmount )

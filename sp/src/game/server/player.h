@@ -745,6 +745,17 @@ public:
 	float	GetFOVDistanceAdjustFactor(); // shared between client and server
 	float	GetFOVDistanceAdjustFactorForNetworking();
 
+#ifdef HOE_THIRDPERSON
+	virtual bool	IsThirdPerson( void ) const;
+	virtual void	ThirdPersonSwitch( bool bThirdperson );
+	CNetworkVar( bool, m_fThirdPerson );
+
+	virtual bool	InThirdPersonAimMode( void ) const;
+	virtual void	ThirdPersonAimModeSwitch( bool bAimMode );
+	CNetworkVar( bool, m_fThirdPersonAimMode );
+	CNetworkVar( float, m_flThirdPersonAimModeTime ); // When we started switching to aim mode
+#endif // HOE_THIRDPERSON
+
 	int		GetImpulse( void ) const { return m_nImpulse; }
 
 	// Movement constraints

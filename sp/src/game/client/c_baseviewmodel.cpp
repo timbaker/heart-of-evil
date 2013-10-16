@@ -441,6 +441,16 @@ void C_BaseViewModel::UpdateAnimationParity( void )
 		// FIXME:  Do we need the magic 0.1?
 		SetCycle( 0.0f ); // GetSequenceCycleRate( GetSequence() ) * 0.1;
 		m_flAnimTime = curtime;
+
+#ifdef HOE_WEAPONMODEL_FIX
+		// In thirdperson the viewmodel is not visible.
+		// If the viewmodel is not visible, DrawModel won't get called.
+		// DrawModel() sets m_nOldAnimationParity == m_nAnimationParity.
+		// If m_nOldAnimationParity is not updated, the cycle constantly gets set to zero above.
+		// If the cycle gets set to zero, animation events later than cycle 0 won't play.
+		if ( pPlayer->ShouldDrawLocalPlayer() )
+			m_nOldAnimationParity = m_nAnimationParity;
+#endif
 	}
 }
 

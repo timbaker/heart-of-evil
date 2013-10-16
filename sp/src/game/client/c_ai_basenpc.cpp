@@ -31,6 +31,9 @@ IMPLEMENT_CLIENTCLASS_DT( C_AI_BaseNPC, DT_AI_BaseNPC, CAI_BaseNPC )
 	RecvPropInt( RECVINFO( m_bSpeedModActive ) ),
 	RecvPropBool( RECVINFO( m_bImportanRagdoll ) ),
 	RecvPropFloat( RECVINFO( m_flTimePingEffect ) ),
+#ifdef HOE_DLL
+	RecvPropEHandle( RECVINFO( m_hDeathSound ) ),
+#endif
 END_RECV_TABLE()
 
 extern ConVar cl_npc_speedmod_intime;
@@ -172,3 +175,104 @@ void C_AI_BaseNPC::GetRagdollInitBoneArrays( matrix3x4_t *pDeltaBones0, matrix3x
 	}
 }
 
+#ifdef HOE_DLL
+class C_NPCDeathSound : public C_BaseEntity
+{
+public:
+	DECLARE_CLASS( C_NPCDeathSound, C_BaseEntity );
+	DECLARE_CLIENTCLASS();
+	DECLARE_DATADESC();
+
+	C_NPCDeathSound()
+	{
+		return;
+	};
+
+	void Activate( void )
+	{
+		BaseClass::Activate();
+
+		float flDuration = 2.0f;
+		if ( m_szSoundName[0] == '!' )
+		{
+			int sentenceIndex = engine->SentenceIndexFromName( m_szSoundName + 1 );
+			if ( sentenceIndex >= 0 )
+			{
+				char name[32];
+				Q_snprintf( name, sizeof(name), "!%d", sentenceIndex );
+
+				EmitSound( name, 0.0f, &flDuration );
+			}
+		}
+		else if ( m_szSoundName[0] )
+		{
+			EmitSound( m_szSoundName, 0.0f, &flDuration );
+		}
+	}
+
+	bool GetSoundSpatialization( SpatializationInfo_t &info )
+	{
+		// The reason we don't just SetParent() on the ragdoll is because
+		// this is a client-server entity while the ragdoll is clientside.
+		if ( m_hSoundSource )
+		{
+			return m_hSoundSource->GetSoundSpatialization( info );
+		}
+		return false;
+	}
+
+	EHANDLE m_hSoundSource; // entity to emit the sound from (the ragdoll)
+	char m_szSoundName[128];
+};
+
+BEGIN_DATADESC( C_NPCDeathSound )
+	DEFINE_AUTO_ARRAY( m_szSoundName, FIELD_CHARACTER ),
+	DEFINE_FIELD( m_hSoundSource, FIELD_EHANDLE ),
+END_DATADESC()
+
+IMPLEMENT_CLIENTCLASS_DT( C_NPCDeathSound, DT_NPCDeathSound, CNPCDeathSound )
+	RecvPropString( RECVINFO( m_szSoundName ) ),
+END_RECV_TABLE()
+
+LINK_ENTITY_TO_CLASS( npc_death_sound, C_NPCDeathSound );
+
+C_BaseAnimating *C_AI_BaseNPC::BecomeRagdollOnClient()
+{
+	C_BaseAnimating *pRagdoll = BaseClass::BecomeRagdollOnClient();
+	if ( pRagdoll && pRagdoll->m_pRagdoll )
+	{
+#if 1
+		C_BaseEntity *pEnt = m_hDeathSound.Get();
+		if ( pEnt != NULL  )
+		{
+			/*
+			Nope.  You can't parent a client-server entity only on the client.
+			pEnt->SetParent( pRagdoll );
+			*/
+			C_NPCDeathSound *pSnd = dynamic_cast<C_NPCDeathSound *>( pEnt );
+			if ( pSnd )
+			{
+				pSnd->m_hSoundSource = pRagdoll;
+				pSnd->Activate();
+			}
+		}
+#elif 0
+		/*pRagdoll->*/EmitSound( "NPC_Mikeforce.Die" );
+#else
+		C_NPCDeathSound *pDeathSoundEmitter = CREATE_ENTITY( C_NPCDeathSound, "npc_death_sound" );
+		if ( pDeathSoundEmitter )
+		{
+			Q_strcpy( pDeathSoundEmitter->m_szSoundName, m_szDeathSound );
+			pDeathSoundEmitter->Spawn();
+			pDeathSoundEmitter->SetAbsOrigin( pRagdoll->GetAbsOrigin() );
+//			pDeathSoundEmitter->SetParent( pRagdoll );
+			pDeathSoundEmitter->Activate();
+		}
+#endif
+		extern void HOENPCBecameRagdoll( int entindex, void *ragdoll );
+		HOENPCBecameRagdoll( entindex(), pRagdoll );
+	}
+	return pRagdoll;
+}
+
+#endif // HOE_DLL

@@ -13,7 +13,9 @@
 #include "props_shared.h"
 #ifndef CLIENT_DLL
 #include "func_breakablesurf.h"
+#ifndef HOE_DLL
 #include "BasePropDoor.h"
+#endif
 #include "doors.h"
 #endif // CLIENT_DLL
 
@@ -124,6 +126,22 @@ public:
 			return ITERATION_CONTINUE;
 		}
 
+#ifdef HOE_DLL
+		if ( FClassnameIs( pEnt, "func_door*" ) || FClassnameIs( pEnt, "prop_door*" ) )
+		{
+			IDoor *iface = dynamic_cast<IDoor *>(pEnt);
+			if ( !iface )
+			{
+				return ITERATION_CONTINUE;
+			}
+			IDoorAccessor *acc = iface->GetDoorAccessor();
+
+			if ( acc->IsDoorOpening() || acc->IsDoorClosing() )
+			{
+				return ITERATION_CONTINUE;
+			}
+		}
+#else // HOE_DLL
 		if ( FClassnameIs( pEnt, "func_door*" ) )
 		{
 			CBaseDoor *door = dynamic_cast<CBaseDoor *>(pEnt);
@@ -150,6 +168,7 @@ public:
 				return ITERATION_CONTINUE;
 			}
 		}
+#endif // HOE_DLL
 		else
 		{
 			return ITERATION_CONTINUE;

@@ -518,6 +518,10 @@ void CAI_TrackPather::UpdateCurrentTarget()
 	const Vector &vecTarget = m_pCurrentPathTarget->GetAbsOrigin();
 	Vector vecPoint;
 	float t = ClosestPointToCurrentPath( &vecPoint );
+#ifdef HOE_DLL
+	// I've seen this lock up at t=0.99999994
+	if ( t > 0.999 ) t = 1.0;
+#endif
 	if ( (t < 1.0f) && ( vecPoint.DistToSqr( vecTarget ) > m_flTargetTolerance * m_flTargetTolerance ) )
 		goto visualizeDebugInfo;
 
@@ -745,6 +749,34 @@ void CAI_TrackPather::ComputePointAlongCurrentPath( float flDistance, float flPe
 	ComputePointFromPerpDistance( *pTarget, vecPathDir, flPerpDist, pTarget );
 }
 
+#ifdef HOE_TRACK_SPLINE
+void CAI_TrackPather::AdvanceAlongCurrentPath( float flDistance, Vector *pTarget, bool bBrake )
+{
+	CPathTrack *pPrevPath = PreviousAlongCurrentPath( m_pCurrentPathTarget );
+	if ( !pPrevPath )
+	{
+		pPrevPath = m_pCurrentPathTarget;
+	}
+	*pTarget = GetAbsOrigin();
+	if ( pPrevPath->GetConnectionType() == TrackConnection_Spline )
+	{
+		if ( bBrake )
+		{
+			float flDistFromPrev = pPrevPath->CalcDistanceAlongSpline( GetAbsOrigin() );
+			// assumes GetDesiredPosition() is m_pCurrentPathTarget->GetAbsOrigin()
+			float flDistDesiredFromPrev = pPrevPath->CalcDistanceAlongSpline( GetDesiredPosition() );
+			flDistance = min( flDistance, flDistDesiredFromPrev - flDistFromPrev );
+			pPrevPath->AdvanceAlongSpline( *pTarget, flDistance, *pTarget );
+		}
+		else
+		{
+			pPrevPath->LookAhead( *pTarget, flDistance, true );
+		}
+	}
+	else // FIXME: handle bBrake
+		ComputeClosestPoint( *pTarget, flDistance, GetDesiredPosition(), pTarget );
+}
+#endif // HOE_TRACK_SPLINE
 
 //-----------------------------------------------------------------------------
 // Methods to find a signed perp distance from the track
@@ -970,7 +1002,11 @@ void CAI_TrackPather::SelectNewDestTarget()
 			}
 		}
 
+#ifdef HOE_DLL
+		if ( (NextAlongCurrentPath( m_pDestPathTarget ) == NULL) )
+#else
 		if ( bIsCircular || (NextAlongCurrentPath( m_pDestPathTarget ) == NULL) )
+#endif
 		{
 			m_bMovingForward = !m_bMovingForward;
 		}
@@ -1298,9 +1334,25 @@ float CAI_TrackPather::MaxDistanceFromCurrentPath() const
 	// NOTE: Can't use m_vecSegmentStartPoint because we don't have a radius defined for it
 	float t;
 	Vector vecTemp;
+#ifdef HOE_TRACK_SPLINE
+	if ( pPrevPath->GetConnectionType() == TrackConnection_Spline )
+	{
+		// FIXME: handle reverse direction
+		t = pPrevPath->CalcDistanceAlongSpline( GetAbsOrigin() );
+		t /= pPrevPath->GetSplineLength();
+		t = clamp( t, 0.0f, 1.0f );
+	}
+	else
+	{
+		CalcClosestPointOnLine( GetAbsOrigin(), pPrevPath->GetAbsOrigin(), 
+			m_pCurrentPathTarget->GetAbsOrigin(), vecTemp, &t );
+		t = clamp( t, 0.0f, 1.0f );
+	}
+#else
 	CalcClosestPointOnLine( GetAbsOrigin(), pPrevPath->GetAbsOrigin(), 
 		m_pCurrentPathTarget->GetAbsOrigin(), vecTemp, &t );
 	t = clamp( t, 0.0f, 1.0f );
+#endif
 	float flRadius = (1.0f - t) * pPrevPath->GetRadius() + t * m_pCurrentPathTarget->GetRadius(); 
 	return flRadius;
 }
@@ -1535,6 +1587,20 @@ float CAI_TrackPather::ClosestPointToCurrentPath( Vector *pVecPoint ) const
 		return 0;
 	}
 
+#ifdef HOE_TRACK_SPLINE
+	CPathTrack *pPrevPath = PreviousAlongCurrentPath( m_pCurrentPathTarget );
+	if ( !pPrevPath )
+	{
+		pPrevPath = m_pCurrentPathTarget;
+	}
+	if ( pPrevPath->GetConnectionType() == TrackConnection_Spline )
+	{
+		float t = pPrevPath->CalcDistanceAlongSpline( GetAbsOrigin(), pVecPoint );
+		return clamp( t / pPrevPath->GetSplineLength(), 0.0, 1.0 );
+	}
+#endif // HOE_TRACK_SPLINE
+
+
 	float t;
 	CalcClosestPointOnLine( GetAbsOrigin(), m_vecSegmentStartPoint, 
 		m_pCurrentPathTarget->GetAbsOrigin(), *pVecPoint, &t );
@@ -1560,6 +1626,33 @@ void CAI_TrackPather::ComputePathTangent( float t, Vector *pVecTangent ) const
 	VectorNormalize( *pVecTangent );
 }
 
+#ifdef HOE_TRACK_SPLINE
+//-----------------------------------------------------------------------------
+void CAI_TrackPather::ComputePathTangent( const Vector &pVecTest, Vector &pVecTangent ) const
+{
+	if ( m_pCurrentPathTarget == NULL )
+	{
+		pVecTangent = vec3_origin;
+		return;
+	}
+
+	Vector vTangent;
+	CPathTrack *pPrevTrack = PreviousAlongCurrentPath( m_pCurrentPathTarget );
+	if ( !pPrevTrack )
+	{
+		pPrevTrack = m_pCurrentPathTarget;
+	}
+	if ( pPrevTrack->GetConnectionType() == TrackConnection_Spline )
+	{
+		pPrevTrack->GetSplineTangent( pVecTest, pVecTangent );
+	}
+	else
+	{
+		VectorSubtract( m_pCurrentPathTarget->GetAbsOrigin(), pPrevTrack->GetAbsOrigin(), pVecTangent );
+		VectorNormalize( pVecTangent );
+	}
+}
+#endif // HOE_TRACK_SPLINE
 
 //-----------------------------------------------------------------------------
 // Computes the *normalized* velocity at which the helicopter should approach the final point
@@ -1583,6 +1676,40 @@ void CAI_TrackPather::ComputeNormalizedDestVelocity( Vector *pVecVelocity ) cons
 		pVecVelocity->Init(0,0,0);
 		return;
 	}
+
+#ifdef HOE_TRACK_SPLINE
+	Vector vTangent, vTangentNext;
+	CPathTrack *pPrevTrack = PreviousAlongCurrentPath( m_pCurrentPathTarget );
+	if ( !pPrevTrack )
+	{
+		pPrevTrack = m_pCurrentPathTarget;
+	}
+	if ( pPrevTrack->GetConnectionType() == TrackConnection_Spline )
+	{
+		pPrevTrack->GetSplineTangent( GetAbsOrigin(), vTangent, &vTangentNext );
+		if ( vTangentNext == vec3_origin )
+		{
+			if ( m_pCurrentPathTarget->GetConnectionType() == TrackConnection_Spline )
+			{
+				m_pCurrentPathTarget->GetSplineTangent( m_pCurrentPathTarget->GetAbsOrigin(), vTangentNext );
+			}
+			else
+			{
+				VectorSubtract( pNextTrack->GetAbsOrigin(), m_pCurrentPathTarget->GetAbsOrigin(), vTangentNext );
+				VectorNormalize( vTangentNext );
+			}
+		}
+
+		*pVecVelocity = vTangentNext;
+
+		// Slow it down if we're approaching a sharp corner
+		float flDot = DotProduct( vTangentNext, vTangent );
+		*pVecVelocity *= clamp( flDot, 0.0f, 1.0f );
+
+		return;
+	}
+
+#endif // HOE_TRACK_SPLINE
 
 	VectorSubtract( pNextTrack->GetAbsOrigin(), m_pCurrentPathTarget->GetAbsOrigin(), *pVecVelocity );
 	VectorNormalize( *pVecVelocity );

@@ -204,6 +204,10 @@ public:
 	int GetBodygroupCount( int iGroup );
 	int GetNumBodyGroups( void );
 
+#ifdef HOE_DLL
+	void InputSetBodygroup( inputdata_t &input );
+#endif // HOE_DLL
+
 	void					SetHitboxSet( int setnum );
 	void					SetHitboxSetByName( const char *setname );
 	int						GetHitboxSet( void );

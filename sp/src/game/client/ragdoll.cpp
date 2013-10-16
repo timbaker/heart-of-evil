@@ -393,6 +393,16 @@ public:
 	IPhysicsObject *GetElement( int elementNum );
 	virtual void UpdateOnRemove();
 	virtual float LastBoneChangedTime();
+#ifdef HOE_DLL
+	void StandardBlendingRules( CStudioHdr *hdr, Vector pos[], Quaternion q[], float currentTime, int boneMask )
+	{
+		if ( MouthInfo().NeedsEnvelope() && GetMouth()->mouthopen > 0 )
+		{
+			ControlMouth( hdr );
+		}
+		BaseClass::StandardBlendingRules( hdr, pos, q, currentTime, boneMask );
+	}
+#endif // HOE_DLL
 
 	// Incoming from network
 	Vector		m_ragPos[RAGDOLL_MAX_ELEMENTS];
@@ -413,6 +423,9 @@ private:
 	float m_flBlendWeightCurrent;
 	CNetworkVar( int, m_nOverlaySequence );
 	float m_flLastBoneChangeTime;
+#ifdef HOE_DLL
+	CNetworkVar( EHANDLE, m_hCopyDecalsFromThisEnt );
+#endif
 };
 
 
@@ -423,6 +436,9 @@ IMPLEMENT_CLIENTCLASS_DT(C_ServerRagdoll, DT_Ragdoll, CRagdollProp)
 	RecvPropEHandle(RECVINFO(m_hUnragdoll)),
 	RecvPropFloat(RECVINFO(m_flBlendWeight)),
 	RecvPropInt(RECVINFO(m_nOverlaySequence)),
+#ifdef HOE_DLL
+	RecvPropEHandle(RECVINFO(m_hCopyDecalsFromThisEnt)),
+#endif
 END_RECV_TABLE()
 
 
@@ -450,10 +466,26 @@ void C_ServerRagdoll::PostDataUpdate( DataUpdateType_t updateType )
 	m_iv_ragAngles.NoteChanged( gpGlobals->curtime, true );
 	// this is the local client time at which this update becomes stale
 	m_flLastBoneChangeTime = gpGlobals->curtime + GetInterpolationAmount(m_iv_ragPos.GetType());
+#ifdef HOE_DLL
+	if ( updateType == DATA_UPDATE_CREATED )
+	{
+		CBaseEntity *pEnt = m_hCopyDecalsFromThisEnt.Get();
+		if ( pEnt != NULL )
+		{
+			pEnt->SnatchModelInstance( this );
+		}
+	}
+#endif
 }
 
 float C_ServerRagdoll::LastBoneChangedTime()
 {
+#ifdef HOE_DLL
+	// This is to keep the ragdoll animating when speaking.  This change works by itself
+	// when the ragdoll is at rest.  If the ragdoll is moving then other changes are needed.
+	if ( MouthInfo().NeedsEnvelope() && GetMouth()->mouthopen > 0 )
+		return gpGlobals->curtime;
+#endif // HOE_DLL
 	return m_flLastBoneChangeTime;
 }
 

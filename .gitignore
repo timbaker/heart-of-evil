@@ -54,3 +54,15 @@ config.cfg
 # shader files
 *.tmp
 
+# HOE
+sp/game/bin/
+*vcxproj.filters
+*vcxproj.vpc_crc
+*vcxprojResolveAssemblyReference.cache
+*.unsuccessfulbuild
+sp/src/materialsystem/stdshaders/Debug_dx9*/
+sp/src/materialsystem/stdshaders/Release_dx9*/
+sp/src/utils/*/Debug/
+sp/src/utils/*/Release/
+
+

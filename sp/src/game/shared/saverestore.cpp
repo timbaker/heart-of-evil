@@ -419,6 +419,9 @@ void CSave::WriteData( const char *pdata , int size )
 
 void CSave::WriteString( const char *pstring )
 {
+#ifdef HOE_DLL // tracking down a bug
+	Assert( pstring != (char*)0xdddddddd );
+#endif
 	BufferData( pstring, strlen(pstring) + 1 );
 }
 
@@ -500,6 +503,9 @@ void CSave::WriteFloat( const char *pname, const float *data, int count )
 
 void CSave::WriteString( const char *pname, const char *pdata )
 {
+#ifdef HOE_DLL // tracking down a bug
+	Assert( pdata != (char*)0xdddddddd );
+#endif
 	BufferField( pname, strlen(pdata) + 1, pdata );
 }
 

@@ -96,6 +96,9 @@ BEGIN_DATADESC( CAI_ScriptedSequence )
 	DEFINE_INPUTFUNC( FIELD_VOID, "MoveToPosition", InputMoveToPosition ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "BeginSequence", InputBeginSequence ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "CancelSequence", InputCancelSequence ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_VOID, "SetLoopActionSequence", InputSetLoopActionSequence ),
+#endif // HOE_DLL
 
 	DEFINE_KEYFIELD( m_iPlayerDeathBehavior, FIELD_INTEGER, "onplayerdeath" ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "ScriptPlayerDeath", InputScriptPlayerDeath ),
@@ -114,6 +117,9 @@ BEGIN_DATADESC( CAI_ScriptedSequence )
 	DEFINE_OUTPUT(m_OnScriptEvent[5], "OnScriptEvent06"),
 	DEFINE_OUTPUT(m_OnScriptEvent[6], "OnScriptEvent07"),
 	DEFINE_OUTPUT(m_OnScriptEvent[7], "OnScriptEvent08"),
+#ifdef HOE_DLL
+	DEFINE_OUTPUT(m_OnArrival, "OnArrival"),
+#endif // HOE_DLL
 
 END_DATADESC()
 
@@ -411,6 +417,20 @@ void CAI_ScriptedSequence::InputCancelSequence( inputdata_t &inputdata )
 	StopThink();
 	ScriptEntityCancel( this );
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+// Purpose: Input handler that causes the script to stop looping.
+//-----------------------------------------------------------------------------
+void CAI_ScriptedSequence::InputSetLoopActionSequence( inputdata_t &inputdata )
+{
+	if ( m_bInitiatedSelfDelete )
+		return;
+
+	SetLoopActionSequence( inputdata.value.Bool() );
+}
+
+#endif
 
 void CAI_ScriptedSequence::InputScriptPlayerDeath( inputdata_t &inputdata )
 {

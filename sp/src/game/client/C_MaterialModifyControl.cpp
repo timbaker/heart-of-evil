@@ -677,7 +677,11 @@ void CMaterialModifyAnimatedProxy::OnBind( void *pEntity )
 	{
 		if ( m_iFrameEnd == MATERIAL_MODIFY_ANIMATION_UNSET )
 		{
+#ifdef HOE_DLL // BUG leads to crash
+			m_iFrameEnd = pTexture->GetNumAnimationFrames() - 1;
+#else
 			m_iFrameEnd = pTexture->GetNumAnimationFrames();
+#endif
 		}
 
 		numFrames = (m_iFrameEnd - m_iFrameStart) + 1;

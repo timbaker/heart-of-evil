@@ -20,6 +20,13 @@ void RegisterUserMessages( void )
 	usermessages->Register( "Geiger", 1 );
 	usermessages->Register( "Train", 1 );
 	usermessages->Register( "HudText", -1 );
+#ifdef HOE_DLL
+	usermessages->Register( "HudUseableText", -1 );
+	usermessages->Register( "HudTaskText", -1 );
+	usermessages->Register( "LetterManager_AddLetter", -1 );
+//	usermessages->Register( "ShowScope", 1 );
+	usermessages->Register( "RescindClosedCaption", 2 );
+#endif // HOE_DLL
 	usermessages->Register( "SayText", -1 );
 	usermessages->Register( "SayText2", -1 );
 	usermessages->Register( "TextMsg", -1 );

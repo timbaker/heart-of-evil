@@ -289,7 +289,11 @@ bool CBaseCombatWeapon::WeaponLOSCondition( const Vector &ownerPos, const Vector
 	// Use the custom LOS trace filter
 	CWeaponLOSFilter traceFilter( m_hOwner.Get(), npcOwner->GetEnemy(), COLLISION_GROUP_BREAKABLE_GLASS );
 	trace_t tr;
+#ifdef HOE_DLL
+	UTIL_TraceLine( barrelPos, targetPos, WeaponLOSMask(), &traceFilter, &tr );
+#else
 	UTIL_TraceLine( barrelPos, targetPos, MASK_SHOT, &traceFilter, &tr );
+#endif
 
 	// See if we completed the trace without interruption
 	if ( tr.fraction == 1.0 )
@@ -327,6 +331,18 @@ bool CBaseCombatWeapon::WeaponLOSCondition( const Vector &ownerPos, const Vector
 
 		return true;
 	}
+
+#ifdef HOE_DLL
+	// HACK HACK HACK - For bullseye parented to prop_ragdoll (see CHOEHuman::Event_KilledOther)
+	if ( npcOwner->GetEnemy() && npcOwner->GetEnemy()->Classify() == CLASS_BULLSEYE )
+	{
+		if ( pHitEnt && pHitEnt == npcOwner->GetEnemy()->GetParent() &&
+			FClassnameIs( npcOwner->GetEnemy()->GetParent(), "prop_ragdoll" ) )
+		{
+			return true;
+		}
+	}
+#endif // HOE_DLL
 
 	// If a vehicle is blocking the view, grab its driver and use that as the combat character
 	CBaseCombatCharacter *pBCC;

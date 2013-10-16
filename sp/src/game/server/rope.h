@@ -52,6 +52,19 @@ public:
 		bool bInitialHang = false
 		);
 
+#ifdef HOE_DLL
+	static CRopeKeyframe* CreateWithStartPosition(
+		const Vector &vStartPos,
+		CBaseEntity *pEndEnt,
+		int iEndAttachment=0,
+		int ropeWidth = 2,
+		const char *pMaterialName = "cable/cable.vmt",		// Note: whoever creates the rope must
+															// use PrecacheModel for whatever material
+															// it specifies here.
+		int numSegments = 5
+		);
+#endif // HOE_DLL
+
 	bool		SetupHangDistance( float flHangDist );
 	void		ActivateStartDirectionConstraints( bool bEnable );
 	void		ActivateEndDirectionConstraints( bool bEnable );
@@ -89,6 +102,9 @@ public:
 	void InputSetScrollSpeed( inputdata_t &inputdata );
 	void InputSetForce( inputdata_t &inputdata );
 	void InputBreak( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void InputSetStartPoint( inputdata_t &inputdata );
+#endif // HOE_DLL
 
 public:
 

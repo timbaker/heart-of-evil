@@ -427,6 +427,12 @@ const PassengerSeatAnims_t *CBaseServerVehicle::NPC_GetPassengerSeatAnims( CBase
 				return &m_PassengerRoles[nRole].m_PassengerSeats[nSeat].m_ExitTransitions;
 				break;
 
+#ifdef HOE_DLL
+			case PASSENGER_SEAT_IDLE:
+				return &m_PassengerRoles[nRole].m_PassengerSeats[nSeat].m_IdleAnims;
+				break;
+#endif // HOE_DLL
+
 			default:
 				return NULL;
 				break;
@@ -497,7 +503,64 @@ void CBaseServerVehicle::SetPassenger( int nRole, CBaseCombatCharacter *pPasseng
 		UTIL_Remove( m_hExitBlocker );
 	}
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+// BUG: UTIL_ParentToWorldSpace was used 4 times in this file but gives bad results
+// when the vehicle actually has a parent.  This routine is copied from that one
+// but never uses the parent.
+void UTIL_EntityToWorldSpace( CBaseEntity *pEntity, Vector &vecPosition, QAngle &vecAngles )
+{
+	if ( pEntity == NULL )
+		return;
+
+	if ( pEntity->GetParent() == NULL )
+		return UTIL_ParentToWorldSpace( pEntity, vecPosition, vecAngles );
+
+#if 0
+	Vector v = pEntity->GetAbsOrigin() - pEntity->GetParent()->GetAbsOrigin();
+	float f = v.Length();
+
+	matrix3x4_t matEntityToParent;
+	AngleMatrix( pEntity->GetLocalAngles(), pEntity->GetLocalOrigin(), matEntityToParent );
+
+	matrix3x4_t matInputToEntity;
+	AngleMatrix( vecAngles, vecPosition, matInputToEntity );
+
+	matrix3x4_t matInputToParent;
+	ConcatTransforms( matInputToEntity, matEntityToParent, matInputToParent );
+
+	// concatenate with our parent's transform
+	matrix3x4_t matResult, matScratch, matParentToWorld;
+	matParentToWorld = pEntity->GetParentToWorldTransform( matScratch );
+	ConcatTransforms( matParentToWorld, matInputToParent, matResult );
+
+	// pull our absolute position out of the matrix
+	MatrixGetColumn( matResult, 3, vecPosition );
+	MatrixAngles( matResult, vecAngles );
+
+#else
+	// Construct the entity-to-world matrix
+	// Start with making an entity-to-parent matrix
+	matrix3x4_t matEntityToParent;
+	AngleMatrix( vecAngles, matEntityToParent );
+	MatrixSetColumn( vecPosition, 3, matEntityToParent );
+
+	// concatenate with our parent's transform
+	matrix3x4_t matResult;
+	matrix3x4_t matParentToWorld;
 	
+	matParentToWorld = pEntity->EntityToWorldTransform();
+
+	ConcatTransforms( matParentToWorld, matEntityToParent, matResult );
+
+	// pull our absolute position out of the matrix
+	MatrixGetColumn( matResult, 3, vecPosition );
+	MatrixAngles( matResult, vecAngles );
+#endif
+}
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: Get a position in *world space* inside the vehicle for the player to start at
 //-----------------------------------------------------------------------------
@@ -519,7 +582,11 @@ void CBaseServerVehicle::GetPassengerSeatPoint( int nRole, Vector *pPoint, QAngl
 			QAngle vecAngles;
 			if ( GetLocalAttachmentAtTime( nIdleSequence, nFeetAttachmentIndex, 0.0f, &vecOrigin, &vecAngles ) )
 			{
+#ifdef HOE_DLL
+				UTIL_EntityToWorldSpace( pAnimating, vecOrigin, vecAngles );
+#else // HOE_DLL
 				UTIL_ParentToWorldSpace( pAnimating, vecOrigin, vecAngles );
+#endif // HOE_DLL
 				if ( pPoint )
 				{
 					*pPoint = vecOrigin;
@@ -557,7 +624,11 @@ void CBaseServerVehicle::GetPassengerSeatPoint( int nRole, Vector *pPoint, QAngl
 //---------------------------------------------------------------------------------
 bool CBaseServerVehicle::CheckExitPoint( float yaw, int distance, Vector *pEndPoint )
 {
+#ifdef HOE_DLL
+	QAngle vehicleAngles = m_pVehicle->GetAbsAngles();
+#else
 	QAngle vehicleAngles = m_pVehicle->GetLocalAngles();
+#endif
   	Vector vecStart = m_pVehicle->GetAbsOrigin();
   	Vector vecDir;
    
@@ -720,6 +791,15 @@ void CBaseServerVehicle::ParseNPCPassengerSeat( KeyValues *pSetKeyValues, CPasse
 
 			ParseNPCSeatTransition( pKey, &pSeat->m_ExitTransitions[nIndex] );
 		}
+#ifdef HOE_DLL
+		else if ( Q_stricmp( lpszName, "idle" ) == 0 )
+		{
+			int nIndex = pSeat->m_IdleAnims.AddToTail();
+			Assert( pSeat->m_IdleAnims.IsValidIndex( nIndex ) );
+
+			ParseNPCSeatTransition( pKey, &pSeat->m_IdleAnims[nIndex] );
+		}
+#endif // HOE_DLL
 
 		// Advance
 		pKey = pKey->GetNextKey();
@@ -728,6 +808,9 @@ void CBaseServerVehicle::ParseNPCPassengerSeat( KeyValues *pSetKeyValues, CPasse
 	// Sort the seats based on their priority
 	pSeat->m_EntryTransitions.Sort( SeatPrioritySort );
 	pSeat->m_ExitTransitions.Sort( SeatPrioritySort );
+#ifdef HOE_DLL
+	pSeat->m_IdleAnims.Sort( SeatPrioritySort );
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -961,8 +1044,11 @@ void CBaseServerVehicle::CacheEntryExitPoints( void )
 		{
 			Vector vecExitPoint = m_ExitAnimations[i].vecExitPointLocal;
 			QAngle vecExitAngles = m_ExitAnimations[i].vecExitAnglesLocal;
+#ifdef HOE_DLL
+			UTIL_EntityToWorldSpace( pAnimating, vecExitPoint, vecExitAngles );
+#else // HOE_DLL
 			UTIL_ParentToWorldSpace( pAnimating, vecExitPoint, vecExitAngles );
-
+#endif // HOE_DLL
 			NDebugOverlay::Box( vecExitPoint, -Vector(8,8,8), Vector(8,8,8), 0, 255, 0, 0, 20.0f );
 			NDebugOverlay::Axis( vecExitPoint, vecExitAngles, 8.0f, true, 20.0f );
 		}
@@ -1088,10 +1174,17 @@ bool CBaseServerVehicle::HandlePassengerExit( CBaseCombatCharacter *pPassenger )
 		// Clear hud hints
 		UTIL_HudHintText( pPlayer, "" );
 
+#ifdef HOE_DLL
+		if ( PlayerEntryExitAffectsSound() )
+		{
+			PlayStopEngineSound();
+		}
+#else // HOE_DLL
 		vbs_sound_update_t params;
 		InitSoundParams(params);
 		params.bExitVehicle = true;
 		SoundState_Update( params );
+#endif // HOE_DLL
 
 		// Find the right exit anim to use based on available exit points.
 		Vector vecExitPoint;
@@ -1287,6 +1380,12 @@ int CBaseServerVehicle::GetExitAnimToUse( Vector &vecEyeExitEndpoint, bool &bAll
 		if ( m_ExitAnimations[i].bUpright != bUpright )
 			continue;
 
+#ifdef HOE_DLL
+		extern bool IsVehicleExitLocked( CBaseServerVehicle *pServerVehicle, int nExitAnim );
+		if ( IsVehicleExitLocked( this, i ) )
+			continue;
+#endif // HOE_DLL
+
 		// Don't use an escape point if we found a non-escape point already
 		if ( !bBestExitIsEscapePoint && m_ExitAnimations[i].bEscapeExit )
 			continue;
@@ -1308,7 +1407,11 @@ int CBaseServerVehicle::GetExitAnimToUse( Vector &vecEyeExitEndpoint, bool &bAll
 		{
 			vehicleExitOrigin = m_ExitAnimations[i].vecExitPointLocal;
 			vehicleExitAngles = m_ExitAnimations[i].vecExitAnglesLocal;
+#ifdef HOE_DLL
+			UTIL_EntityToWorldSpace( pAnimating, vehicleExitOrigin, vehicleExitAngles );
+#else
 			UTIL_ParentToWorldSpace( pAnimating, vehicleExitOrigin, vehicleExitAngles );
+#endif
 		}
 
 		// Don't bother checking points which are farther from our view direction.
@@ -1451,8 +1554,11 @@ void CBaseServerVehicle::HandleEntryExitFinish( bool bExitAnimOn, bool bResetAni
 				// Convert our offset points to worldspace ones
 				vecEyes = m_ExitAnimations[m_iCurrentExitAnim].vecExitPointLocal;
 				vecEyeAng = m_ExitAnimations[m_iCurrentExitAnim].vecExitAnglesLocal;
+#ifdef HOE_DLL
+				UTIL_EntityToWorldSpace( pAnimating, vecEyes, vecEyeAng );
+#else
 				UTIL_ParentToWorldSpace( pAnimating, vecEyes, vecEyeAng );
-
+#endif
 				// Use the endpoint we figured out when we exited
 				vecEyes = m_vecCurrentExitEndPoint;
 			}
@@ -1663,6 +1769,9 @@ void CBaseServerVehicle::NPC_TurnCenter( void )
 {
 	m_nNPCButtons &= ~IN_MOVERIGHT;
 	m_nNPCButtons &= ~IN_MOVELEFT;
+#ifdef HOE_DLL
+	m_flTurnDegrees = 0;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1784,6 +1893,27 @@ void CBaseServerVehicle::StopLoopingSound( float fadeTime )
 		controller.SoundFadeOut( m_pStateSoundFade, fadeTime, false );
 	}
 }
+
+#ifdef HOE_DLL
+void CBaseServerVehicle::PlayLoopingSound( sound_states iState )
+{
+	PlayLoopingSound( StateSoundName( iState ) );
+}
+
+void CBaseServerVehicle::PlayStartEngineSound( void )
+{
+	SoundStart();
+}
+
+void CBaseServerVehicle::PlayStopEngineSound( void )
+{
+	vbs_sound_update_t params;
+	InitSoundParams(params);
+	params.bExitVehicle = true;
+	SoundState_Update( params );
+}
+
+#endif // HOE_DLL
 
 void CBaseServerVehicle::PlayLoopingSound( const char *pSoundName )
 {

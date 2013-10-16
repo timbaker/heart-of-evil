@@ -34,5 +34,8 @@
 
 
 #define PANEL_COMMENTARY_MODELVIEWER	"commentary_modelviewer"
+#ifdef HOE_DLL
+#define PANEL_LETTERS		"letters"
+#endif
 
 #endif // VIEWPORT_PANEL_NAMES_H

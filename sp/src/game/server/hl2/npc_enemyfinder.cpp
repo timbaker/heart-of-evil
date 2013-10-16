@@ -14,6 +14,9 @@
 #include "ai_squad.h"
 #include "ai_utils.h"
 #include "ai_senses.h"
+#ifdef HOE_DLL
+#include "filters.h"
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -238,6 +241,13 @@ bool CNPC_EnemyFinder::FVisible( CBaseEntity *pTarget, int traceMask, CBaseEntit
 	if ( m_flMaxSearchDist && flTargetDist > m_flMaxSearchDist)
 		return false;
 
+#ifdef HOE_DLL
+	// Test our enemy filter
+	// This is to stop UpdateEnemyMemory on NPCs I D_HT but don't consider enemies.
+	if ( m_hEnemyFilter.Get()!= NULL && m_hEnemyFilter->PassesFilter( this, pTarget ) == false )
+		return false;
+#endif // HOE_DLL
+
 	if ( !FBitSet( m_spawnflags, SF_ENEMY_FINDER_CHECK_VIS) )
 		return true;
 
@@ -300,6 +310,12 @@ bool CNPC_EnemyFinder::IsValidEnemy( CBaseEntity *pTarget )
 
 	if ( m_flMaxSearchDist && flTargetDist > m_flMaxSearchDist)
 		return false;
+
+#ifdef HOE_DLL
+	// Test our enemy filter
+	if ( m_hEnemyFilter.Get()!= NULL && m_hEnemyFilter->PassesFilter( this, pTarget ) == false )
+		return false;
+#endif // HOE_DLL
 
 	if ( !FBitSet( m_spawnflags, SF_ENEMY_FINDER_CHECK_VIS) )
 		return true;

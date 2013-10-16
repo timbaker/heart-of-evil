@@ -428,6 +428,10 @@ BEGIN_RECV_TABLE_NOBASE( C_BaseEntity, DT_PredictableId )
 END_RECV_TABLE()
 #endif
 
+#ifdef HOE_DLL
+// See c_hl2_playerlocaldata.cpp
+extern void RecvProxy_StringToString_t( const CRecvProxyData *pData, void *pStruct, void *pOut );
+#endif // HOE_DLL
 
 BEGIN_RECV_TABLE_NOBASE(C_BaseEntity, DT_BaseEntity)
 	RecvPropDataTable( "AnimTimeMustBeFirst", 0, 0, &REFERENCE_RECV_TABLE(DT_AnimTimeMustBeFirst) ),
@@ -476,6 +480,10 @@ BEGIN_RECV_TABLE_NOBASE(C_BaseEntity, DT_BaseEntity)
 #ifdef TF_CLIENT_DLL
 	RecvPropArray3( RECVINFO_ARRAY(m_nModelIndexOverrides),	RecvPropInt( RECVINFO(m_nModelIndexOverrides[0]) ) ),
 #endif
+
+#ifdef HOE_DLL
+	RecvPropString( RECVINFO( m_iszCCImageName ), 0, RecvProxy_StringToString_t ),
+#endif // HOE_DLL
 
 END_RECV_TABLE()
 

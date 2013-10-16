@@ -341,9 +341,18 @@ void CAI_PassengerBehaviorZombie::Event_Killed( const CTakeDamageInfo &info )
 	if ( m_hVehicle )
 	{
 		// Stop taking messages from the vehicle
+#ifdef HOE_DLL
+		CPropVehicleDriveable *pProp = dynamic_cast<CPropVehicleDriveable *>( m_hVehicle.Get() );
+		if ( pProp )
+			pProp->RemovePhysicsChild( GetOuter() );
+		INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+		pCarrier->NPC_RemovePassenger( GetOuter() );
+		pCarrier->NPC_FinishedExitVehicle( GetOuter(), false );
+#else
 		m_hVehicle->RemovePhysicsChild( GetOuter() );
 		m_hVehicle->NPC_RemovePassenger( GetOuter() );
 		m_hVehicle->NPC_FinishedExitVehicle( GetOuter(), false );
+#endif
 	}
 
 	BaseClass::Event_Killed( info );
@@ -414,9 +423,18 @@ void CAI_PassengerBehaviorZombie::StartDismount( void )
 	GetOuter()->SetIdealActivity( ACT_SCRIPT_CUSTOM_MOVE );
 
 	// This removes the NPC from the vehicle's handling and fires all necessary outputs
+#ifdef HOE_DLL
+	CPropVehicleDriveable *pProp = dynamic_cast<CPropVehicleDriveable *>( m_hVehicle.Get() );
+	if ( pProp )
+		pProp->RemovePhysicsChild( GetOuter() );
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	pCarrier->NPC_RemovePassenger( GetOuter() );
+	pCarrier->NPC_FinishedExitVehicle( GetOuter(), (IsPassengerHostile()==false) );
+#else
 	m_hVehicle->RemovePhysicsChild( GetOuter() );
 	m_hVehicle->NPC_RemovePassenger( GetOuter() );
 	m_hVehicle->NPC_FinishedExitVehicle( GetOuter(), (IsPassengerHostile()==false) );
+#endif
 
 	// Detach from the parent
 	GetOuter()->SetParent( NULL );
@@ -653,9 +671,14 @@ void CAI_PassengerBehaviorZombie::ExitVehicle( void )
 	BaseClass::ExitVehicle();
 
 	// Remove us as a passenger
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	pCarrier->NPC_RemovePassenger( GetOuter() );
+	pCarrier->NPC_FinishedExitVehicle( GetOuter(), false );
+#else
 	m_hVehicle->NPC_RemovePassenger( GetOuter() );
 	m_hVehicle->NPC_FinishedExitVehicle( GetOuter(), false );
-
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -753,7 +776,12 @@ void CAI_PassengerBehaviorZombie::HandleAnimEvent( animevent_t *pEvent )
 bool CAI_PassengerBehaviorZombie::AttachToVehicle( void )
 {
 	// Must be able to enter the vehicle
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	if ( pCarrier->NPC_CanEnterVehicle( GetOuter(), false ) == false )
+#else
 	if ( m_hVehicle->NPC_CanEnterVehicle( GetOuter(), false ) == false )
+#endif
 		return false;
 
 	// Reserve the seat

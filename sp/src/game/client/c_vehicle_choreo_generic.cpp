@@ -257,3 +257,25 @@ void C_PropVehicleChoreoGeneric::DrawHudElements( )
 }
 
 
+#ifdef HOE_DLL
+class C_PropVehicleChoreoTruck : public C_PropVehicleChoreoGeneric
+{
+public:
+	DECLARE_CLASS( C_PropVehicleChoreoTruck, C_PropVehicleChoreoGeneric );
+	DECLARE_CLIENTCLASS();
+	C_PropVehicleChoreoTruck()
+	{
+	}
+	~C_PropVehicleChoreoTruck()
+	{
+	}
+	virtual bool IsPassengerUsingStandardWeapons( int nRole = VEHICLE_ROLE_DRIVER ) { return m_bUsingStandardWeapons; }
+
+	bool m_bUsingStandardWeapons;
+};
+
+IMPLEMENT_CLIENTCLASS_DT(C_PropVehicleChoreoTruck, DT_PropVehicleChoreoTruck, CPropVehicleChoreoTruck)
+	RecvPropBool( RECVINFO( m_bUsingStandardWeapons ) ),
+END_RECV_TABLE()
+
+#endif // HOE_DLL

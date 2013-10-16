@@ -28,6 +28,10 @@ public:
 	void			Spawn( void );
 	void			Precache( void );
 	Class_T			Classify ( void );
+#ifdef HOE_DLL
+	bool ClassifyPlayerAlly( void ) { return false; }
+	bool ClassifyPlayerAllyVital( void ) { return false; }
+#endif
 	void			HandleAnimEvent( animevent_t *pEvent );
 	float			MaxYawSpeed ( void );
 	void			WarmUpSound ( void );
@@ -40,6 +44,10 @@ public:
 	void			RunTask( const Task_t *pTask );
 	int				GetSoundInterests( void );
 	void			SonicAttack( void );
+#ifdef HOE_DLL
+	void			GatherConditions( void );
+	void			OnStateChange( NPC_STATE OldState, NPC_STATE NewState );
+#endif
 	void			PrescheduleThink( void );
 	void			WriteBeamColor ( void );
 	int				RangeAttack1Conditions ( float flDot, float flDist );
@@ -54,11 +62,24 @@ public:
 	bool			IsAnyoneInSquadAttacking( void );
 	void			SpeakSentence( int sentenceType );
 
+#ifdef HOE_DLL
+	void SetSkin( int skin ) { m_nSkin = skin; }
+	int GetSkin( void ) { return m_nSkin; }
+
+	bool HasAlienGibs( void ) { return true; }
+	bool ShouldGib( const CTakeDamageInfo &info ) { return m_bShouldGib; }
+#endif
+
 	float			m_flNextSecondaryAttack;
 	bool			m_bLoopClockwise;
 
 	CEnergyWave*	m_pEnergyWave;
 	float			m_flEndEnergyWaveTime;
+#ifdef HOE_DLL
+	int				m_iBeamRingEffectIndex;
+	bool			m_bShouldGib;
+	float			m_flTimeStartIdle;
+#endif
 
 	bool			m_fAsleep;// some houndeyes sleep in idle mode if this is set, the houndeye is lying down
 	bool			m_fDontBlink;// don't try to open/close eye if this bit is set!

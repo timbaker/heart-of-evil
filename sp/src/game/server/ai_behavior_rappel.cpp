@@ -130,8 +130,13 @@ void CAI_RappelBehavior::Precache()
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
+#ifdef HOE_DLL
+#define RAPPEL_MAX_SPEED	196	// FIXME: HL1 was random 128-196
+#define RAPPEL_MIN_SPEED	128 // Go no slower than this.
+#else
 #define RAPPEL_MAX_SPEED	600	// Go this fast if you're really high.
 #define RAPPEL_MIN_SPEED	60 // Go no slower than this.
+#endif
 #define RAPPEL_DECEL_DIST	(20.0f * 12.0f)	// Start slowing down when you're this close to the ground.
 void CAI_RappelBehavior::SetDescentSpeed()
 {

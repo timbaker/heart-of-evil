@@ -40,6 +40,42 @@ ConVar	sk_barnacle_health( "sk_barnacle_health","0");
 
 static ConVar npc_barnacle_swallow( "npc_barnacle_swallow", "0", 0, "Use prototype swallow code." );
 
+#ifdef HOE_DLL
+const char *g_szHGIBS[] = {
+	"models/gibs/hgibs_Skull1.mdl", // Skull must be first
+	"models/gibs/hgibs_B_Bone1.mdl",
+	"models/gibs/hgibs_B_Gib1.mdl",
+	"models/gibs/hgibs_Flesh1.mdl",
+	"models/gibs/hgibs_Flesh2.mdl",
+	"models/gibs/hgibs_Flesh3.mdl",
+	"models/gibs/hgibs_Flesh4.mdl",
+	"models/gibs/hgibs_Guts1.mdl",
+	"models/gibs/hgibs_HMeat1.mdl",
+	"models/gibs/hgibs_Legbone1.mdl",
+	"models/gibs/hgibs_Lung1.mdl",
+};
+static const int MAX_HGIBS = ARRAYSIZE(g_szHGIBS);
+const char *HGibModel( int index )
+{
+	Assert( index >= 0 && index < MAX_HGIBS );
+	if ( index < 0 || index >= MAX_HGIBS )
+		index = 0;
+	return g_szHGIBS[index];
+}
+const char *HGibModelRandom( void )
+{
+	int nFirst = 1; // start at one to avoid throwing random amounts of skulls (0th gib)
+	int nIndex = random->RandomInt( nFirst, MAX_HGIBS - 1 ); 
+	return HGibModel( nIndex );
+}
+
+// called from world.cpp
+void PrecacheHGibs( void )
+{
+	for ( int i = 0; i < MAX_HGIBS; i++ )
+		CBaseEntity::PrecacheModel( g_szHGIBS[i] );
+}
+#else // !HOE_DLL
 const char *CNPC_Barnacle::m_szGibNames[NUM_BARNACLE_GIBS] =
 {
 	"models/gibs/hgibs.mdl",
@@ -47,6 +83,7 @@ const char *CNPC_Barnacle::m_szGibNames[NUM_BARNACLE_GIBS] =
 	"models/gibs/hgibs_rib.mdl",
 	"models/gibs/hgibs_spine.mdl"
 };
+#endif // !HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Private activities.
@@ -151,6 +188,9 @@ BEGIN_DATADESC( CNPC_Barnacle )
 	DEFINE_FIELD( m_bPlayerWasStanding, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_flVictimHeight, FIELD_FLOAT ),
 	DEFINE_FIELD( m_iGrabbedBoneIndex, FIELD_INTEGER ),
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_flKillVictimTime, FIELD_TIME ),
+#endif
 
 	DEFINE_FIELD( m_vecRoot, FIELD_POSITION_VECTOR ),
 	DEFINE_FIELD( m_vecTip, FIELD_POSITION_VECTOR ),
@@ -233,16 +273,37 @@ void CNPC_Barnacle::HandleAnimEvent( animevent_t *pEvent )
 {
 	if ( pEvent->event== AE_BARNACLE_PUKEGIB )
 	{
+#ifdef HOE_DLL
+		CGib *pGib = CREATE_ENTITY( CGib, "gib" );
+		pGib->Spawn( HGibModelRandom() );
+		pGib->InitGib( this, 1, 1 );
+		Vector origin = GetAbsOrigin() - Vector(0,0,40);
+		pGib->Teleport( &origin, NULL, NULL );
+//		pGib->m_lifeTime = 25;
+		pGib->SetOwnerEntity( this );
+
+		pGib->SetThink( &CGib::DieThink );
+		pGib->SetNextThink( gpGlobals->curtime + pGib->m_lifeTime );
+#else
 		CGib::SpawnSpecificGibs( this, 1, 50, 1, "models/gibs/hgibs_rib.mdl");
+#endif
 		return;
 	}
 	if ( pEvent->event == AE_BARNACLE_BITE )
 	{
+#ifdef HOE_DLL
+		if ( GetEnemy() == NULL )
+			return;
+#endif
 		BitePrey();
 		return;
 	}
 	if ( pEvent->event == AE_BARNACLE_SPIT )
 	{
+#ifdef HOE_DLL
+		if ( GetEnemy() == NULL )
+			return;
+#endif
 		SpitPrey();
 		return;
 	}
@@ -379,6 +440,7 @@ int	CNPC_Barnacle::OnTakeDamage_Alive( const CTakeDamageInfo &inputInfo )
 		SetActivity( ACT_SMALL_FLINCH );
 	}
 
+#ifndef HOE_DLL
 	if( hl2_episodic.GetBool() && info.GetAttacker() && info.GetAttacker()->Classify() == CLASS_PLAYER_ALLY_VITAL )
 	{
 		if( FClassnameIs( info.GetAttacker(), "npc_alyx" ) )
@@ -388,6 +450,7 @@ int	CNPC_Barnacle::OnTakeDamage_Alive( const CTakeDamageInfo &inputInfo )
 			info.ScaleDamage( 2.0f );
 		}
 	}
+#endif
 
 	DropTongue();
 
@@ -482,7 +545,11 @@ void CNPC_Barnacle::BarnacleThink ( void )
 				// bite prey every once in a while
 				if ( random->RandomInt(0,25) == 0 )
 				{
+#ifdef HOE_DLL
+					EmitSound( "NPC_Barnacle.Chew" );
+#else
 					EmitSound( "NPC_Barnacle.Digest" );
+#endif
 				}
 			}
 			else
@@ -513,6 +580,19 @@ void CNPC_Barnacle::BarnacleThink ( void )
 		{	
 			LiftPrey();
 		}
+#ifdef HOE_DLL
+		else if ( m_flKillVictimTime != 0 && gpGlobals->curtime > m_flKillVictimTime )
+		{
+			CBaseCombatCharacter *pVictim = GetEnemy()->MyCombatCharacterPointer();
+			Assert( pVictim );
+
+			// DMG_CRUSH because we don't wan't to impart physics forces
+			pVictim->TakeDamage( CTakeDamageInfo( this, this, pVictim->GetHealth(), DMG_CRUSH | DMG_SLASH | DMG_ALWAYSGIB ) );
+			m_cGibs = 3;
+
+			m_flKillVictimTime = 0;
+		}
+#endif
 		// Stay bloated as we digest
 		else if ( m_flDigestFinish )
 		{
@@ -527,7 +607,11 @@ void CNPC_Barnacle::BarnacleThink ( void )
 				// bite prey every once in a while
 				if ( random->RandomInt(0,25) == 0 )
 				{
+#ifdef HOE_DLL
+					EmitSound( "NPC_Barnacle.Chew" );
+#else
 					EmitSound( "NPC_Barnacle.Digest" );
+#endif
 				}
 			}
 			else
@@ -585,10 +669,27 @@ void CNPC_Barnacle::BarnacleThink ( void )
 		if ( m_cGibs && random->RandomInt(0,99) == 1 )
 		{
 			// cough up a gib.
+#ifdef HOE_DLL
+			CGib *pGib = CREATE_ENTITY( CGib, "gib" );
+			pGib->Spawn( HGibModelRandom() );
+			pGib->InitGib( this, 1, 1 );
+			Vector origin = GetAbsOrigin() - Vector(0,0,40);
+			pGib->Teleport( &origin, NULL, NULL );
+//			pGib->m_lifeTime = 25;
+			pGib->SetOwnerEntity( this );
+
+			pGib->SetThink( &CGib::DieThink );
+			pGib->SetNextThink( gpGlobals->curtime + pGib->m_lifeTime );
+
+			m_cGibs--;
+
+			EmitSound( "NPC_Barnacle.Chew" );
+#else
 			CGib::SpawnSpecificGibs( this, 1, 50, 1, "models/gibs/hgibs_rib.mdl");
 			m_cGibs--;
 
 			EmitSound( "NPC_Barnacle.Digest" );
+#endif
 		}
 
 		pTouchEnt = TongueTouchEnt( &flLength );
@@ -615,7 +716,11 @@ void CNPC_Barnacle::BarnacleThink ( void )
 					Vector vecGrabPos = pTouchEnt->EyePosition();
 					if( !pBCC || pBCC->DispatchInteraction( g_interactionBarnacleVictimGrab, &vecGrabPos, this ) )
 					{
+#ifdef HOE_DLL
+						EmitSound( "NPC_Barnacle.Alert" );	
+#else
 						EmitSound( "NPC_Barnacle.BreakNeck" );
+#endif
 						AttachTongueToTarget( pTouchEnt, vecGrabPos );
 						
 						// Set the local timer to 60 seconds, which starts the lifting phase on
@@ -794,7 +899,10 @@ void CNPC_Barnacle::PlayLiftingScream( float flBiteZOffset )
 {
 	if ( !m_bPlayedPullSound && m_flAltitude < (flBiteZOffset + 100) )
 	{
+#ifdef HOE_DLL
+#else
 		EmitSound( "NPC_Barnacle.Scream" );
+#endif
 		m_bPlayedPullSound = true;
 	}
 }
@@ -849,8 +957,12 @@ void CNPC_Barnacle::PullEnemyTorwardsMouth( bool bAdjustEnemyOrigin )
 		m_flLastPull = flPull;
 
 		Vector vecNewPos = m_vLastEnemyPos;
+#ifdef HOE_DLL
+		if ( !pEnemy->IsPlayer() )
+			vecNewPos.z += flPull;
+#else // HOE_DLL
 		// vecNewPos.z += flPull;
-
+#endif // HOE_DLL
 #if 0
 		// this is an example of one somewhat crude attempt to realign objects so that they are directly underneath
 		// the barnacle. It introduces unacceptable oscillation.
@@ -913,6 +1025,10 @@ void CNPC_Barnacle::PullEnemyTorwardsMouth( bool bAdjustEnemyOrigin )
 
 #endif
 
+#ifdef HOE_DLL
+		if ( !pEnemy->IsPlayer() )
+			pEnemy->SetAbsOrigin( vecNewPos );
+#endif // HOE_DLL
 		// GetEnemy()->Teleport( &vecNewPos, NULL, NULL );
 
 		if( pEnemy->GetFlags() & FL_ONGROUND )
@@ -998,6 +1114,36 @@ void CNPC_Barnacle::LiftPlayer( float flBiteZOffset )
 //-----------------------------------------------------------------------------
 void CNPC_Barnacle::LiftNPC( float flBiteZOffset )
 {
+#ifdef HOE_DLL
+	// The point we want to grab the NPC at can change with whatever animation
+	// the NPC is playing. So if the grab-point has moved from where the tongue-tip
+	// is then reconnect/reposition the tongue tip. This is mostly a problem when
+	// the NPC runs into the barnacle tongue then switches to the "choking" animation.
+	if ( m_hTongueTip && m_pConstraint )
+	{
+		Vector vecGrabPos = GetEnemy()->EyePosition();
+		if ( vecGrabPos.DistTo( m_vecTip ) > 4 )
+		{
+			DevMsg("CNPC_Barnacle::LiftNPC: moving tongue tip\n");
+			m_hTongueTip->Teleport( &vecGrabPos, NULL, NULL );
+
+			// Destroy the current constraint.
+			physenv->DestroyConstraint( m_pConstraint );
+			m_pConstraint = NULL;
+
+			// Create the new constraint
+			IPhysicsObject *pPlayerPhys = GetEnemy()->VPhysicsGetObject();
+			IPhysicsObject *pTonguePhys = m_hTongueTip->VPhysicsGetObject();
+			
+			constraint_fixedparams_t fixed;
+			fixed.Defaults();
+			fixed.InitWithCurrentObjectState( pTonguePhys, pPlayerPhys );
+			fixed.constraint.Defaults();
+			m_pConstraint = physenv->CreateFixedConstraint( pTonguePhys, pPlayerPhys, NULL, fixed );
+		}
+	}
+#endif
+
 	// Necessary to make the NPCs not do things like talk
 	GetEnemy()->AddEFlags( EFL_IS_BEING_LIFTED_BY_BARNACLE );
 
@@ -1046,6 +1192,7 @@ void CNPC_Barnacle::LiftRagdoll( float flBiteZOffset )
  		if ( !WaitForRagdollToSettle( flBiteZOffset ) )
 			return;
 
+#ifndef HOE_DLL
   		if ( GetEnemy()->Classify() == CLASS_ZOMBIE )
 		{
 			// lifted the prey high enough to see it's a zombie. Spit it out.
@@ -1060,6 +1207,7 @@ void CNPC_Barnacle::LiftRagdoll( float flBiteZOffset )
 			}
 			return;
 		}
+#endif
 
 		m_bLiftingPrey = false;
 
@@ -1145,6 +1293,7 @@ void CNPC_Barnacle::LiftPhysicsObject( float flBiteZOffset )
 		// If we got a physics prop, wait until the thing has settled down
 		m_bLiftingPrey = false;
 
+#ifndef HOE_DLL
 		if ( hl2_episodic.GetBool() )
 		{
 			CBounceBomb *pBounce = dynamic_cast<CBounceBomb *>( pVictim );
@@ -1166,6 +1315,7 @@ void CNPC_Barnacle::LiftPhysicsObject( float flBiteZOffset )
 			}
 		}
 		else
+#endif
 		{
 			// Start the bite animation. The anim event in it will finish the job.
 			SetActivity( (Activity)ACT_BARNACLE_TASTE_SPIT );
@@ -1218,8 +1368,11 @@ void CNPC_Barnacle::LiftPrey( void )
 	}
 
 	// Height from the barnacle's origin to the point at which it bites
+#ifdef HOE_DLL
+	float flBiteZOffset = 40.0;
+#else
 	float flBiteZOffset = 60.0;
-
+#endif
 	if ( IsEnemyAPlayer() )
 	{
 		LiftPlayer(flBiteZOffset);
@@ -1362,6 +1515,8 @@ void CNPC_Barnacle::AttachTongueToTarget( CBaseEntity *pTouchEnt, Vector vecGrab
 	// Reset this valricue each time we attach prey. If it needs to be reduced, code below will do so.
 	m_flBarnaclePullSpeed = BARNACLE_PULL_SPEED;
 
+#ifdef HOE_DLL
+#else
 	if ( RandomFloat(0,1) > 0.5 )
 	{
 		EmitSound( "NPC_Barnacle.PullPant" );
@@ -1370,7 +1525,7 @@ void CNPC_Barnacle::AttachTongueToTarget( CBaseEntity *pTouchEnt, Vector vecGrab
 	{
 		EmitSound( "NPC_Barnacle.TongueStretch" );
 	}
-
+#endif
 	SetActivity( (Activity)ACT_BARNACLE_SLURP );
 
 	// Get the player out of the vehicle he's in.
@@ -1419,14 +1574,22 @@ void CNPC_Barnacle::AttachTongueToTarget( CBaseEntity *pTouchEnt, Vector vecGrab
 			UTIL_TraceHull( origin + Vector(0, 0, 24), origin, pTouchEnt->WorldAlignMins(), pTouchEnt->WorldAlignMaxs(), MASK_NPCSOLID, &traceFilter, &placementTrace );
 			if ( !placementTrace.startsolid )
 			{
+#ifdef HOE_DLL
+				pTouchEnt->Teleport( &placementTrace.endpos, NULL, NULL );
+#else
 				pTouchEnt->SetAbsOrigin( placementTrace.endpos );
 				// pTouchEnt->Teleport( &placementTrace.endpos, NULL, NULL );
+#endif
 			}
 		}
 		else
 		{
+#ifdef HOE_DLL
+				pTouchEnt->Teleport( &origin, NULL, NULL );
+#else
 			pTouchEnt->SetAbsOrigin( origin );
 			// pTouchEnt->Teleport( &origin, NULL, NULL );
+#endif
 		}
 	}
 
@@ -1437,7 +1600,11 @@ void CNPC_Barnacle::AttachTongueToTarget( CBaseEntity *pTouchEnt, Vector vecGrab
 
 	CBaseAnimating *pAnimating = dynamic_cast<CBaseAnimating*>(pTouchEnt);
 
+#ifdef HOE_DLL
+	if ( 1 ) // lift NPCs too
+#else
 	if ( IsEnemyAPlayer() || IsEnemyAPhysicsObject() )
+#endif
 	{
 		// The player (and phys objects) doesn't ragdoll, so just grab him and pull him up manually
 		IPhysicsObject *pPlayerPhys = pTouchEnt->VPhysicsGetObject();
@@ -1453,6 +1620,14 @@ void CNPC_Barnacle::AttachTongueToTarget( CBaseEntity *pTouchEnt, Vector vecGrab
 #endif
 			// pTonguePhys->GetPosition(&vecGrabPos,NULL);
 		}
+#ifdef HOE_DLL
+		else if ( pTouchEnt->IsNPC() )
+		{
+			vecGrabPos = GetAbsOrigin();
+			vecGrabPos.z = pTouchEnt->GetAbsOrigin().z;
+			vecGrabPos.z += pTouchEnt->GetViewOffset().z;
+		}
+#endif // HOE_DLL
 		else
 		{
 			VectorSubtract( m_vecTip, pTouchEnt->GetAbsOrigin(), vecGrabPos	);
@@ -1577,6 +1752,19 @@ void CNPC_Barnacle::BitePrey( void )
 
 	CBaseCombatCharacter *pVictim = GetEnemyCombatCharacterPointer();
 
+#ifdef HOE_DLL
+	Assert( pVictim );
+
+	EmitSound( "NPC_Barnacle.Bite" );
+
+	if ( IsEnemyAnNPC() )
+	{
+		m_flKillVictimTime = gpGlobals->curtime + 10;
+		SetActivity( (Activity) ACT_BARNACLE_CHEW_HUMAN );
+	}
+
+	pVictim->DispatchInteraction( g_interactionBarnacleVictimBite, NULL, this );
+#else // HOE_DLL
 #ifdef HL2_EPISODIC
  	if ( pVictim == NULL )
 	{
@@ -1745,6 +1933,7 @@ void CNPC_Barnacle::BitePrey( void )
 	m_hRagdoll->SetBlendWeight( 0.0f );
 
 	SprayBlood();
+#endif // !HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -1917,6 +2106,9 @@ void CNPC_Barnacle::LostPrey( bool bRemoveRagdoll )
 	RemoveRagdoll( bRemoveRagdoll );
 	m_bLiftingPrey = false;
 	m_bSwallowingPrey = false;
+#ifdef HOE_DLL
+	m_flKillVictimTime = 0;
+#endif
 #if HL2_EPISODIC
 	m_bSwallowingPoison = false;
 #endif
@@ -1989,6 +2181,8 @@ void CNPC_Barnacle::UpdateTongue( void )
 //-----------------------------------------------------------------------------
 void CNPC_Barnacle::SpawnDeathGibs( void )
 {
+#ifdef HOE_DLL
+#else
 	bool bDroppedAny = false;
 
 	// Drop a random number of gibs
@@ -2006,6 +2200,7 @@ void CNPC_Barnacle::SpawnDeathGibs( void )
 	{
 		CGib::SpawnSpecificGibs( this, 1, 32, 1, m_szGibNames[0] );
 	}
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -2298,6 +2493,12 @@ void CNPC_Barnacle::Precache()
 {
 	PrecacheModel("models/barnacle.mdl");
 
+#ifdef HOE_DLL
+	PrecacheScriptSound( "NPC_Barnacle.Bite" );
+	PrecacheScriptSound( "NPC_Barnacle.Chew" );
+	PrecacheScriptSound( "NPC_Barnacle.Alert" );
+	PrecacheScriptSound( "NPC_Barnacle.Die" );
+#else // HOE_DLL
 	// Precache all gibs
 	for ( int i=0; i < ARRAYSIZE(m_szGibNames); i++ )
 	{
@@ -2311,6 +2512,7 @@ void CNPC_Barnacle::Precache()
 	PrecacheScriptSound( "NPC_Barnacle.FinalBite" );
 	PrecacheScriptSound( "NPC_Barnacle.Die" );
 	PrecacheScriptSound( "NPC_Barnacle.BreakNeck" );
+#endif // HOE_DLL
 
 	PrecacheModel( "models/props_junk/rock001a.mdl" );
 
@@ -2493,6 +2695,7 @@ CBaseEntity *CNPC_Barnacle::TongueTouchEnt ( float *pflLength )
 			}
 		}
 
+#ifndef HOE_DLL
 		// Deal with physics objects
 		if ( pTest->GetMoveType() == MOVETYPE_VPHYSICS )
 		{
@@ -2523,11 +2726,19 @@ CBaseEntity *CNPC_Barnacle::TongueTouchEnt ( float *pflLength )
 				return pTest;
 			}
 		}
+#endif // !HOE_DLL
 
 		// NPCs + players
 		CBaseCombatCharacter *pVictim = ToBaseCombatCharacter( pTest );
 		if ( !pVictim )
 			continue;
+
+#ifdef HOE_DLL
+		extern bool HOE_IsHuman( CBaseEntity *pEnt ); // Hack: only humans get grabbed by barnacle
+
+		if ( !pVictim->IsPlayer() && !HOE_IsHuman( pVictim ) )
+			continue;
+#endif // HOE_DLL
 
 		// only clients and monsters
 		if ( pTest != this && 
@@ -2711,7 +2922,9 @@ AI_BEGIN_CUSTOM_NPC( npc_barnacle, CNPC_Barnacle )
 	DECLARE_INTERACTION( g_interactionBarnacleVictimDangle )
 	DECLARE_INTERACTION( g_interactionBarnacleVictimReleased )
 	DECLARE_INTERACTION( g_interactionBarnacleVictimGrab )
+#ifdef HOE_DLL
 	DECLARE_INTERACTION( g_interactionBarnacleVictimBite )
+#endif // HOE_DLL
 
 	// Conditions
 		

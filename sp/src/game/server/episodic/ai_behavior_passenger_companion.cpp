@@ -394,8 +394,14 @@ void CAI_PassengerBehaviorCompanion::UpdateStuckStatus( void )
 	ClearCondition( COND_PASSENGER_CAN_LEAVE_STUCK_VEHICLE );
 
 	// If we can't exit the vehicle, then don't bother with these checks
+#ifdef HOE_DLL
+	INPCPassengerCarrier *pCarrier = dynamic_cast<INPCPassengerCarrier *>( m_hVehicle.Get() );
+	if ( pCarrier->NPC_CanExitVehicle( GetOuter(), true ) == false )
+		return;
+#else
 	if ( m_hVehicle->NPC_CanExitVehicle( GetOuter(), true ) == false )
 		return;
+#endif
 
 	bool bVisibleToPlayer = false;
 	bool bPlayerInVehicle = false;

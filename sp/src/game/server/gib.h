@@ -40,6 +40,9 @@ public:
 	void Spawn( const char *szGibModel, float flLifetime );
 
 	void InitGib( CBaseEntity *pVictim, float fMaxVelocity, float fMinVelocity );
+#ifdef HOE_DLL
+	void InitGibPhysics( Vector vecNewVelocity );
+#endif
 	void BounceGibTouch ( CBaseEntity *pOther );
 	void StickyGibTouch ( CBaseEntity *pOther );
 	void WaitTillLand( void );

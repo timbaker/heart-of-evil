@@ -30,14 +30,22 @@ public:
 	void Spawn( void )
 	{ 
 		Precache( );
+#ifdef HOE_DLL
+		SetModel( "models/w_suit.mdl" );
+#else
 		SetModel( "models/items/hevsuit.mdl" );
+#endif
 		BaseClass::Spawn( );
 		
 		CollisionProp()->UseTriggerBounds( false, 0 );
 	}
 	void Precache( void )
 	{
+#ifdef HOE_DLL
+		PrecacheModel ("models/w_suit.mdl");
+#else
 		PrecacheModel ("models/items/hevsuit.mdl");
+#endif
 	}
 	bool MyTouch( CBasePlayer *pPlayer )
 	{

@@ -35,6 +35,11 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
+#ifdef HOE_DLL
+#define RAMP_THINK_CONTEXT "AmbientGenericRampThinkContext"
+#define RANDOM_THINK_CONTEXT "AmbientGenericRandomThinkContext"
+#endif
+
 //-----------------------------------------------------------------------------
 // Purpose: Compute a suitable attenuation value given an audible radius
 // Input  : radius - 
@@ -183,6 +188,21 @@ public:
 	void InputFadeIn( inputdata_t &inputdata );
 	void InputFadeOut( inputdata_t &inputdata );
 
+#ifdef HOE_DLL
+	void InputVolumeIfPlaying( inputdata_t &inputdata );
+	float m_flTimeSoundEnds;
+
+	// This is to replicate the old "speaker" entity
+	void InputRandomOn( inputdata_t &inputdata );
+	void InputRandomOff( inputdata_t &inputdata );
+
+	void RandomThink( void );
+
+	float m_flMinDelay;
+	float m_flMaxDelay;
+	bool m_bRandomOn;
+#endif
+
 	DECLARE_DATADESC();
 
 	float m_radius;
@@ -197,6 +217,11 @@ public:
 	string_t m_sSourceEntName;
 	EHANDLE m_hSoundSource;	// entity from which the sound comes
 	int		m_nSoundSourceEntIndex; // In case the entity goes away before we finish stopping the sound...
+
+#ifdef HOE_DLL
+	COutputEvent m_OnBeginSentence;
+	COutputEvent m_OnEndSentence;
+#endif
 };
 
 LINK_ENTITY_TO_CLASS( ambient_generic, CAmbientGeneric );
@@ -206,6 +231,10 @@ BEGIN_DATADESC( CAmbientGeneric )
 	DEFINE_KEYFIELD( m_iszSound, FIELD_SOUNDNAME, "message" ),
 	DEFINE_KEYFIELD( m_radius,			FIELD_FLOAT, "radius" ),
 	DEFINE_KEYFIELD( m_sSourceEntName,	FIELD_STRING, "SourceEntityName" ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_flMinDelay, FIELD_FLOAT, "delaymin" ),
+	DEFINE_KEYFIELD( m_flMaxDelay, FIELD_FLOAT, "delaymax" ),
+#endif
 	// recomputed in Activate()
 	// DEFINE_FIELD( m_hSoundSource, EHANDLE ),
 	// DEFINE_FIELD( m_nSoundSourceEntIndex, FIELD_INTERGER ),
@@ -214,6 +243,10 @@ BEGIN_DATADESC( CAmbientGeneric )
 	DEFINE_FIELD( m_fActive, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_fLooping, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_iSoundLevel, FIELD_INTEGER ),
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_flTimeSoundEnds, FIELD_TIME ),
+	DEFINE_FIELD( m_bRandomOn, FIELD_BOOLEAN ),
+#endif
 
 	// HACKHACK - This is not really in the spirit of the save/restore design, but save this
 	// out as a binary data block.  If the dynpitchvol_t is changed, old saved games will NOT
@@ -233,6 +266,19 @@ BEGIN_DATADESC( CAmbientGeneric )
 	DEFINE_INPUTFUNC(FIELD_FLOAT, "Volume", InputVolume ),
 	DEFINE_INPUTFUNC(FIELD_FLOAT, "FadeIn", InputFadeIn ),
 	DEFINE_INPUTFUNC(FIELD_FLOAT, "FadeOut", InputFadeOut ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_FLOAT, "VolumeIfPlaying", InputVolumeIfPlaying ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "RandomOn", InputRandomOn ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "RandomOff", InputRandomOff ),
+
+	DEFINE_THINKFUNC( RandomThink ),
+#endif
+
+#ifdef HOE_DLL
+	// Outputs
+	DEFINE_OUTPUT(m_OnBeginSentence, "OnBeginSentence"),
+	DEFINE_OUTPUT(m_OnEndSentence, "OnEndSentence"),
+#endif
 
 END_DATADESC()
 
@@ -240,7 +286,11 @@ END_DATADESC()
 #define SF_AMBIENT_SOUND_EVERYWHERE			1
 #define SF_AMBIENT_SOUND_START_SILENT		16
 #define SF_AMBIENT_SOUND_NOT_LOOPING		32
-
+#ifdef HOE_DLL
+#define SF_AMBIENT_SOUND_RANDOM_INTERVAL	64
+#define SF_AMBIENT_SOUND_SPEAKER			128
+#define SF_AMBIENT_SOUND_PAUSE				256
+#endif
 
 //-----------------------------------------------------------------------------
 // Spawn
@@ -265,8 +315,12 @@ void CAmbientGeneric::Spawn( void )
 	// of ambient sound's pitch or volume. Don't
 	// start thinking yet.
 
+#ifdef HOE_DLL
+	SetContextThink( &CAmbientGeneric::RampThink, TICK_NEVER_THINK, RAMP_THINK_CONTEXT );
+#else
 	SetThink(&CAmbientGeneric::RampThink);
 	SetNextThink( TICK_NEVER_THINK );
+#endif
 
 	m_fActive = false;
 
@@ -284,6 +338,21 @@ void CAmbientGeneric::Spawn( void )
 
 	Precache( );
 
+#ifdef HOE_DLL
+	if ( HasSpawnFlags( SF_AMBIENT_SOUND_RANDOM_INTERVAL ) )
+	{
+		m_bRandomOn = true;
+
+		if ( !HasSpawnFlags( SF_AMBIENT_SOUND_START_SILENT ) )
+		{
+			SetContextThink( &CAmbientGeneric::RandomThink,
+				gpGlobals->curtime + random->RandomFloat( m_flMinDelay, m_flMaxDelay ),
+				RANDOM_THINK_CONTEXT );
+		}
+	}
+	else
+		m_bRandomOn = false;
+#endif
 	// init all dynamic modulation parms
 	InitModulationParms();
 }
@@ -378,6 +447,25 @@ void CAmbientGeneric::InputVolume( inputdata_t &inputdata )
 	SendSound( SND_CHANGE_VOL );
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CAmbientGeneric::InputVolumeIfPlaying( inputdata_t &inputdata )
+{
+	//
+	// Multiply the input value by ten since volumes are expected to be from 0 - 100.
+	//
+	m_dpv.vol = clamp( inputdata.value.Float(), 0, 10 ) * 10;
+	m_dpv.volfrac = m_dpv.vol << 8;
+
+	bool bPlaying = false;
+	if ( m_fLooping )
+		bPlaying = m_fActive;
+	else
+		bPlaying = gpGlobals->curtime < m_flTimeSoundEnds;
+	if ( bPlaying )
+		SendSound( SND_CHANGE_VOL );
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Input handler for fading in volume over time.
@@ -395,7 +483,11 @@ void CAmbientGeneric::InputFadeIn( inputdata_t &inputdata )
 	if (m_dpv.fadein > 0)
 		m_dpv.fadein = ( 100 << 8 ) / ( m_dpv.fadein * AMBIENT_GENERIC_UPDATE_RATE );
 
+#ifdef HOE_DLL
+	SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 	SetNextThink( gpGlobals->curtime + 0.1f );
+#endif
 }
 
 
@@ -416,7 +508,11 @@ void CAmbientGeneric::InputFadeOut( inputdata_t &inputdata )
 	if (m_dpv.fadeout > 0)
 		m_dpv.fadeout = ( 100 << 8 ) / ( m_dpv.fadeout * AMBIENT_GENERIC_UPDATE_RATE );
 
+#ifdef HOE_DLL
+	SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 	SetNextThink( gpGlobals->curtime + 0.1f );
+#endif
 }
 
 
@@ -514,7 +610,11 @@ void CAmbientGeneric::Activate( void )
 			SendSound( (SoundFlags_t)flags );
 		}
 
+#ifdef HOE_DLL
+		SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 		SetNextThink( gpGlobals->curtime + 0.1f );
+#endif
 	}
 }
 
@@ -762,7 +862,11 @@ void CAmbientGeneric::RampThink( void )
 	}
 
 	// update ramps at 5hz
+#ifdef HOE_DLL
+	SetNextThink( gpGlobals->curtime + AMBIENT_GENERIC_THINK_DELAY, RAMP_THINK_CONTEXT );
+#else
 	SetNextThink( gpGlobals->curtime + AMBIENT_GENERIC_THINK_DELAY );
+#endif
 	return;
 }
 
@@ -875,6 +979,100 @@ void CAmbientGeneric::InputStopSound( inputdata_t &inputdata )
 	}
 }
 
+#ifdef HOE_DLL
+
+//-----------------------------------------------------------------------------
+void CAmbientGeneric::InputRandomOn( inputdata_t &inputdata )
+{
+	if ( !m_bRandomOn )
+	{
+		m_bRandomOn = true;
+
+		SetContextThink( &CAmbientGeneric::RandomThink,
+			gpGlobals->curtime + 0.1f,
+			RANDOM_THINK_CONTEXT );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CAmbientGeneric::InputRandomOff( inputdata_t &inputdata )
+{
+	if ( m_bRandomOn )
+	{
+		m_bRandomOn = false;
+
+		SetContextThink( NULL,
+			TICK_NEVER_THINK,
+			RANDOM_THINK_CONTEXT );
+	}
+}
+
+extern bool IsHumanTalking( void );
+extern float g_flHumanSpeechTime;
+float g_flSpeakerTime = 0; // most-recent time any SF_AMBIENT_SOUND_SPEAKER finished playing a sound
+
+//-----------------------------------------------------------------------------
+void CAmbientGeneric::RandomThink( void )
+{
+	Assert( m_bRandomOn );
+
+	// BUG: If playing a random sentence then SND_STOP doesn't know which sentence to stop.
+
+	// Only one speaker plays at a time. Don't play over human speech
+	if ( HasSpawnFlags( SF_AMBIENT_SOUND_SPEAKER ) && ( IsHumanTalking() || ( g_flSpeakerTime > gpGlobals->curtime ) ) )
+	{
+		DevMsg(2,"Speaker waiting HUMANS=%s SPEAKERs=%s\n", IsHumanTalking() ? "yes" : "no", ( g_flSpeakerTime > gpGlobals->curtime ) ? "yes" : "no" );
+		SetNextThink(
+//			gpGlobals->curtime + random->RandomFloat( m_flMinDelay, m_flMaxDelay ),
+			max( g_flHumanSpeechTime, g_flSpeakerTime ),
+			RANDOM_THINK_CONTEXT );
+
+		return;
+	}
+
+	// Assuming we have a few speakers on random timers, don't play our sound if another
+	// speaker played recently.
+	if ( HasSpawnFlags( SF_AMBIENT_SOUND_SPEAKER ) && ( g_flSpeakerTime > gpGlobals->curtime - m_flMinDelay ) )
+	{
+		DevMsg(2,"Speaker delaying due to recent speaker (try again in %.2f seconds)\n",  g_flSpeakerTime + m_flMinDelay - gpGlobals->curtime );
+		SetNextThink(
+			g_flSpeakerTime + m_flMinDelay,
+			RANDOM_THINK_CONTEXT );
+		return;
+	}
+
+	if ( !m_fActive )
+	{
+		if ( m_fLooping ) // HOE: ToggleSound will call SND_STOP for non-looping sound 
+			//Adrian: Stop our current sound before starting a new one!
+			SendSound( SND_STOP ); 
+		
+		ToggleSound();
+	}
+
+	if ( HasSpawnFlags( SF_AMBIENT_SOUND_SPEAKER ) && STRING(m_iszSound)[0] == '!' && STRING(m_iszSound)[1] != '!' )
+	{
+		DevMsg(2,"Speaker played sentence and shut off\n");
+		// HL1 speaker entity would play a sentence once and then shut off. This was only if not playing
+		// random sentences from a sentence group.
+		return;
+	}
+
+#if 0
+	// HL1 speaker would not let a human speak for 5 seconds after starting a sound
+	// But HOE uses these for ambient background noises not announcments.
+	if ( HasSpawnFlags( SF_AMBIENT_SOUND_SPEAKER ) )
+	{
+		g_flHumanSpeechTime = gpGlobals->curtime + 5;
+	}
+#endif
+
+	SetNextThink(
+		gpGlobals->curtime + random->RandomFloat( m_flMinDelay, m_flMaxDelay ),
+		RANDOM_THINK_CONTEXT );
+}
+#endif
+
 void CAmbientGeneric::SendSound( SoundFlags_t flags)
 {
 	char *szSoundFile = (char *)STRING( m_iszSound );
@@ -888,8 +1086,40 @@ void CAmbientGeneric::SendSound( SoundFlags_t flags)
 		}
 		else
 		{
+#ifdef HOE_DLL
+			int iFlags = flags;
+
+			// Added this to pause an MP3 when the game is paused.
+			// Also pauses WAV sounds.
+			// Otherwise the namf0 boatride gets out of sync.
+			if ( HasSpawnFlags( SF_AMBIENT_SOUND_PAUSE ) )
+			{
+				iFlags |= SND_SHOULDPAUSE;
+			}
+
+			float flDuration;
+
+			UTIL_EmitAmbientSound(pSoundSource->GetSoundSourceIndex(), pSoundSource->GetAbsOrigin(), szSoundFile, 
+				(m_dpv.vol * 0.01), m_iSoundLevel, iFlags, m_dpv.pitch, 0, &flDuration);
+
+			if ( szSoundFile && szSoundFile[0] == '!' )
+			{
+				m_OnBeginSentence.FireOutput(NULL, this);
+				m_OnEndSentence.FireOutput(NULL, this, flDuration);
+			}
+
+			if ( HasSpawnFlags( SF_AMBIENT_SOUND_SPEAKER ) )
+			{
+				if ( !flDuration ) flDuration = 5;
+				g_flSpeakerTime = gpGlobals->curtime + flDuration;
+			}
+
+			if ( !m_fLooping )
+				m_flTimeSoundEnds = gpGlobals->curtime + flDuration;
+#else
 			UTIL_EmitAmbientSound(pSoundSource->GetSoundSourceIndex(), pSoundSource->GetAbsOrigin(), szSoundFile, 
 				(m_dpv.vol * 0.01), m_iSoundLevel, flags, m_dpv.pitch);
+#endif
 		}
 	}	
 	else
@@ -949,7 +1179,11 @@ void CAmbientGeneric::ToggleSound()
 				m_dpv.pitchrun = m_dpv.pitchstart + pitchinc * m_dpv.cspincount;
 				if (m_dpv.pitchrun > 255) m_dpv.pitchrun = 255;
 
+#ifdef HOE_DLL
+				SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 				SetNextThink( gpGlobals->curtime + 0.1f );
+#endif
 			}
 			
 		}
@@ -968,7 +1202,11 @@ void CAmbientGeneric::ToggleSound()
 
 				m_dpv.fadeout = m_dpv.fadeoutsav;
 				m_dpv.fadein = 0;
+#ifdef HOE_DLL
+				SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 				SetNextThink( gpGlobals->curtime + 0.1f );
+#endif
 			}
 			else
 			{
@@ -998,8 +1236,11 @@ void CAmbientGeneric::ToggleSound()
 
 		SendSound( SND_NOFLAGS ); // send sound
 
+#ifdef HOE_DLL
+		SetNextThink( gpGlobals->curtime + 0.1f, RAMP_THINK_CONTEXT );
+#else
 		SetNextThink( gpGlobals->curtime + 0.1f );
-
+#endif
 	} 
 }
 
@@ -1324,6 +1565,128 @@ void SENTENCEG_Stop(edict_t *entity, int isentenceg, int ipick)
 }
 #endif
 
+#ifdef HOE_DLL
+CUtlDict<char*, int> g_SentenceCaptions;
+
+//-----------------------------------------------------------------------------
+// Parse sentences.txt and remember which closed caption each sentence wants to display.
+// The Source Engine displays those CC entries via CHLClient::EmitCloseCaption but
+// I disabled that function because there is no way to know which entity is displaying
+// the caption. Without the entity there is no way to display a CC icon or perform
+// attenuation on the caption.
+// FIXME: do this if vox_reload is called
+//-----------------------------------------------------------------------------
+static void HOE_InitSentenceCaptions( void )
+{
+	FileHandle_t f = g_pFullFileSystem->Open( "scripts/sentences.txt", "r" );
+
+	// read into a memory block
+	int fileSize = g_pFullFileSystem->Size(f);
+	int dataSize = fileSize + 1;
+	if ( dataSize % 2 )
+		++dataSize;
+	char *memBlock = (char *)malloc(dataSize);
+	memset( memBlock, 0x0, dataSize);
+	int bytesRead = g_pFullFileSystem->Read(memBlock, fileSize, f);
+	g_pFullFileSystem->Close( f );
+	if ( bytesRead < fileSize )
+	{
+		// NULL-terminate based on the length read in, since Read() can transform \r\n to \n and
+		// return fewer bytes than we were expecting.
+		memBlock[ bytesRead ] = 0;
+		memBlock[ bytesRead+1 ] = 0;
+	}
+
+	// null-terminate the stream (redundant, since we memset & then trimmed the transformed buffer already)
+	memBlock[dataSize - 1] = 0x00;
+
+	for ( int d = 0; d < dataSize; d++ )
+	{
+		// Terminate end of line
+		int j = 0;
+		char *buffer = memBlock + d;
+		while ( buffer[j] != '\0' && buffer[j] != '\n' ) j++;
+		buffer[j] = '\0';
+
+		// skip to end of this line
+		d += j;
+
+		// skip whitespace
+		j = 0;
+		while ( buffer[j] && buffer[j] == ' ' )
+			j++;
+		
+		if ( !buffer[j] )
+			continue;
+
+		// skip comments and mystic symbols
+		if ( buffer[j] == '/' || !isalpha(buffer[j]) )
+			continue;
+
+		// get sentence name
+		int k = j;
+		while ( buffer[k] && buffer[k] != ' ' )
+			k++;
+
+		if ( !buffer[k] )
+			continue;
+
+		// null-terminate name and save
+		buffer[k] = 0;
+		const char *sentence = buffer + j;
+
+		// Find the {...} block
+		k++;
+		while ( buffer[k] && buffer[k] != '{' )
+			k++;
+		if ( !buffer[k] )
+			continue;
+
+		k++;
+		char *caption = Q_stristr( buffer + k, "closecaption" );
+		if ( !caption )
+			continue;
+
+		// Skip to start of caption (if any)
+		caption += strlen("closecaption");
+		while ( caption[0] && caption[0] == ' ' )
+			caption++;
+
+		// get caption name
+		if ( caption[0] )
+		{
+			k = 0;
+			while ( caption[k] && caption[k] != ' ' && caption[k] != '}' )
+				k++;
+
+			// null-terminate name and save
+			caption[k] = 0;
+		}
+
+//		DevMsg( "%s %s\n", sentence, caption[0] ? caption : sentence );
+
+		g_SentenceCaptions.Insert( sentence, caption[0] ? strdup( caption ) : strdup( sentence ) );
+	}
+
+	free(memBlock);
+}
+
+const char *HOE_SentenceCaptionFromIndex( int sentenceIndex )
+{
+	if ( sentenceIndex < 0 )
+		return NULL;
+
+	const char *sentence = engine->SentenceNameFromIndex( sentenceIndex );
+	if ( sentence && sentence[0] )
+	{
+		int captionIndex = g_SentenceCaptions.Find( sentence );
+		if ( captionIndex != g_SentenceCaptions.InvalidIndex() )
+			return g_SentenceCaptions[captionIndex];
+	}
+	return NULL;
+}
+#endif // HOE_DLL
+
 // open sentences.txt, scan for groups, build rgsentenceg
 // Should be called from world spawn, only works on the
 // first call and is ignored subsequently.
@@ -1333,6 +1696,9 @@ void SENTENCEG_Init()
 		return;
 
 	engine->PrecacheSentenceFile( "scripts/sentences.txt" );
+#ifdef HOE_DLL
+	HOE_InitSentenceCaptions();
+#endif // HOE_DLL
 	fSentencesInit = true;
 }
 

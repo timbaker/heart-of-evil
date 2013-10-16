@@ -220,6 +220,10 @@ void CRecharge::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE use
 	if (m_iJuice <= 0)
 	{
 		m_nState = 1;			
+#ifdef HOE_DLL
+		// FIXME: OnEmpty output should call an env_texturetoggle entity but this is easier
+		SetTextureFrameIndex( 1 );
+#endif
 		Off();
 	}
 
@@ -305,6 +309,10 @@ void CRecharge::Recharge(void)
 {
 	UpdateJuice( MaxJuice() );
 	m_nState = 0;			
+#ifdef HOE_DLL
+	// FIXME: OnEmpty output should call an env_texturetoggle entity but this is easier
+	SetTextureFrameIndex( 0 );
+#endif
 	SetThink( &CRecharge::SUB_DoNothing );
 }
 

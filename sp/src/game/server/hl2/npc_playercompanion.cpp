@@ -3399,9 +3399,15 @@ IServerVehicle *CNPC_PlayerCompanion::GetVehicle( void )
 {
 	if ( IsInAVehicle() )
 	{
+#ifdef HOE_DLL
+		CBaseEntity *pVehicle = m_PassengerBehavior.GetTargetVehicle();
+		if ( pVehicle != NULL )
+			return pVehicle->GetServerVehicle();
+#else
 		CPropVehicleDriveable *pDriveableVehicle = m_PassengerBehavior.GetTargetVehicle();
 		if ( pDriveableVehicle != NULL )
 			return pDriveableVehicle->GetServerVehicle();
+#endif
 	}
 
 	return NULL;
@@ -3415,8 +3421,12 @@ CBaseEntity *CNPC_PlayerCompanion::GetVehicleEntity( void )
 {
 	if ( IsInAVehicle() )
 	{
+#ifdef HOE_DLL
+		return m_PassengerBehavior.GetTargetVehicle();
+#else
 		CPropVehicleDriveable *pDriveableVehicle = m_PassengerBehavior.GetTargetVehicle();
 			return pDriveableVehicle;
+#endif
 	}
 
 	return NULL;

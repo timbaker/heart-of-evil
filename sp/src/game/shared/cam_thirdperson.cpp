@@ -53,6 +53,18 @@ ConVar cl_thirdperson( "cl_thirdperson", "0", FCVAR_NOT_CONNECTED | FCVAR_USERIN
 
 CThirdPersonManager::CThirdPersonManager( void )
 {
+#ifdef HOE_DLL
+	// BUG - Init() only called by LevelShutdown()
+	m_bOverrideThirdPerson = false;
+	m_bForced = false;
+	m_flUpFraction = 0.0f;
+	m_flFraction = 1.0f;
+
+	m_flUpLerpTime = 0.0f;
+	m_flLerpTime = 0.0f;
+
+	m_flUpOffset = CAMERA_UP_OFFSET;
+#endif
 }
 
 void CThirdPersonManager::Init( void )
@@ -130,7 +142,11 @@ Vector CThirdPersonManager::GetDistanceFraction( void )
 {
 	if ( IsOverridingThirdPerson() == true )
 	{
+#ifdef HOE_DLL
+		return Vector( m_flTargetFraction, m_flTargetFraction, 1.0 - m_flTargetUpFraction );
+#else
 		return Vector( m_flTargetFraction, m_flTargetFraction, m_flTargetFraction );
+#endif
 	}
 
 	float flFraction = m_flFraction;
@@ -218,6 +234,15 @@ void CThirdPersonManager::PositionCamera( CBasePlayer *pPlayer, QAngle angles )
 				}
 			}
 		}
+#ifdef HOE_DLL
+		else
+		{
+			if ( 1.0 != m_flTargetUpFraction ) {
+				m_flUpLerpTime = gpGlobals->curtime;
+				m_flTargetUpFraction = 1.0;
+			}
+		}
+#endif
 	}
 }
 

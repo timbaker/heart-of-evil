@@ -640,10 +640,18 @@ void CAI_Motor::MoveFacing( const AILocalMoveGoal_t &move )
 	float fSequenceMoveYaw = GetSequenceMoveYaw( nSequence );
 	if ( fSequenceMoveYaw == NOMOTION )
 	{
+#ifdef HOE_DLLxxx // HOE_DANGER
+	if ( GetActivity() == ACT_TRANSITION ) return;
+#endif
 		fSequenceMoveYaw = 0;
 	}
 
+#ifdef HOE_DLL
+	if ( !GetOuter()->HasPoseMoveYaw() ||
+		 !HasPoseParameter( nSequence, GetOuter()->LookupPoseMoveYaw() ))
+#else // HOE_DLL
 	if (!HasPoseParameter( nSequence, GetOuter()->LookupPoseMoveYaw() ))
+#endif // HOE_DLL
 	{
 		SetIdealYawAndUpdate( UTIL_AngleMod( flMoveYaw - fSequenceMoveYaw ) );
 	}

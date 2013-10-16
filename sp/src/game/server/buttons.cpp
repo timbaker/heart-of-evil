@@ -414,7 +414,11 @@ void CBaseButton::Spawn( )
 	m_vecPosition2	= m_vecPosition1 + (m_vecMoveDir * (DotProductAbs( m_vecMoveDir, vecButtonOBB ) - m_flLip));
 
 	// Is this a non-moving button?
+#ifdef HOE_DLL
+	if ( ((m_vecPosition2 - m_vecPosition1).Length() < 0.5) || HasSpawnFlags(SF_BUTTON_DONTMOVE) )
+#else
 	if ( ((m_vecPosition2 - m_vecPosition1).Length() < 1) || HasSpawnFlags(SF_BUTTON_DONTMOVE) )
+#endif
 	{
 		m_vecPosition2 = m_vecPosition1;
 	}

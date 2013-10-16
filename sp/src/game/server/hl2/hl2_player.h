@@ -14,6 +14,9 @@
 #include "hl2_playerlocaldata.h"
 #include "simtimer.h"
 #include "soundenvelope.h"
+#ifdef HOE_THIRDPERSON
+#include "hoe/hl2mp_playeranimstate.h"
+#endif // HOE_THIRDPERSON
 
 class CAI_Squad;
 class CPropCombineBall;
@@ -91,6 +94,24 @@ public:
 
 	DECLARE_SERVERCLASS();
 	DECLARE_DATADESC();
+
+#ifdef HOE_THIRDPERSON
+	// This passes the event to the client's and server's CHL2MPPlayerAnimState.
+	void DoAnimationEvent( PlayerAnimEvent_t event, int nData = 0 );
+
+	inline Activity GetCurrentMainActivity() { return m_PlayerAnimState->GetCurrentMainActivity(); };
+
+	void SetupBones( matrix3x4_t *pBoneToWorld, int boneMask );
+
+	void TrackFootSplashes( int iAttachment, bool &bPrevInWater, Vector &prevOrigin );
+
+	void SetModel( const char *szModelName );
+
+	// No blood (or bullsquid spit, etc) decals in thirdperson (or firstperson...)
+	void DecalTrace( trace_t *pTrace, char const *decalName ) { /* nothing */ };
+	void ImpactTrace( trace_t *pTrace, int iDamageType, char *pCustomImpactName ) { /* nothing */ };
+
+#endif // HOE_THIRDPERSON
 
 	virtual void		CreateCorpse( void ) { CopyToBodyQue( this ); };
 
@@ -360,10 +381,42 @@ private:
 	EHANDLE				m_hLocatorTargetEntity; // The entity that's being tracked by the suit locator.
 
 	float				m_flTimeNextLadderHint;	// Next time we're eligible to display a HUD hint about a ladder.
-	
+
+#ifdef HOE_THIRDPERSON
+	CHL2MPPlayerAnimState *m_PlayerAnimState;
+
+	// Footstep splashes
+	int m_iLeftFootAttachment, m_iRightFootAttachment;
+	bool m_bLeftFootInWater, m_bRightFootInWater;
+	Vector m_vLeftFootOrigin, m_vRightFootOrigin;
+#endif // HOE_THIRDPERSON
+
 	friend class CHL2GameMovement;
+
+#ifdef HOE_DLL
+public:
+	void CheckUseableEntity( void );
+	void SetUseableEntityString( string_t iszUseableString );
+	void AddLetter( string_t letterName );
+
+	EHANDLE				m_hUseableEntity;
+	EHANDLE				m_hLookEntity;
+	string_t			m_iszUseableString;
+
+	float				m_flTimeHealedByMedic;
+	float				m_flTimeInjuriesMentioned;
+#endif // HOE_DLL
 };
 
+#ifdef HOE_THIRDPERSON
+inline CHL2_Player *ToHL2Player( CBaseEntity *pEntity )
+{
+	if ( !pEntity || !pEntity->IsPlayer() )
+		return NULL;
+
+	return dynamic_cast<CHL2_Player*>( pEntity );
+}
+#endif // HOE_THIRDPERSON
 
 //-----------------------------------------------------------------------------
 // FIXME: find a better way to do this

@@ -221,7 +221,11 @@ void CBaseHLCombatWeapon::WeaponIdle( void )
 		}
 		else if ( HasWeaponIdleTimeElapsed() ) 
 		{
+#ifdef HOE_DLL
+			SendWeaponAnim( GetIdleActivity() );
+#else // HOE_DLL
 			SendWeaponAnim( ACT_VM_IDLE );
+#endif // HOE_DLL
 		}
 	}
 }
@@ -427,5 +431,20 @@ const WeaponProficiencyInfo_t *CBaseHLCombatWeapon::GetDefaultProficiencyValues(
 
 	return g_BaseWeaponProficiencyTable;
 }
+
+#if defined(HOE_IRONSIGHTS)
+//-----------------------------------------------------------------------------
+bool CBaseHLCombatWeapon::CanToggleIronSights( void )
+{
+	if ( GetOwner() && GetOwner()->IsPlayer() )
+	{
+		CHL2_Player *pPlayer = assert_cast<CHL2_Player*>( GetOwner() );
+		if ( pPlayer->IsSprinting() )
+			return false;
+	}
+
+	return BaseClass::CanToggleIronSights();
+}
+#endif // HOE_IRONSIGHTS
 
 #endif

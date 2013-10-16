@@ -17,6 +17,9 @@
 #include "basecombatweapon.h"
 #include "const.h"
 #include "player.h"		// For debug draw sending
+#ifdef HOE_DLL
+#include "hl2_player.h"
+#endif
 #include "ndebugoverlay.h"
 #include "physics.h"
 #include "model_types.h"
@@ -256,6 +259,11 @@ void SendProxy_Angles( const SendProp *pProp, const void *pStruct, const void *p
 	pOut->m_Vector[ 2 ] = anglemod( a->z );
 }
 
+#ifdef HOE_DLL
+// see env_screenoverlay.cpp
+extern void SendProxy_String_tToString( const SendProp *pProp, const void *pStruct, const void *pData, DVariant *pOut, int iElement, int objectID );
+#endif
+
 // This table encodes the CBaseEntity data.
 IMPLEMENT_SERVERCLASS_ST_NOBASE( CBaseEntity, DT_BaseEntity )
 	SendPropDataTable( "AnimTimeMustBeFirst", 0, &REFERENCE_SEND_TABLE(DT_AnimTimeMustBeFirst), SendProxy_ClientSideAnimation ),
@@ -305,6 +313,10 @@ IMPLEMENT_SERVERCLASS_ST_NOBASE( CBaseEntity, DT_BaseEntity )
 #ifdef TF_DLL
 	SendPropArray3( SENDINFO_ARRAY3(m_nModelIndexOverrides), SendPropInt( SENDINFO_ARRAY(m_nModelIndexOverrides), SP_MODEL_INDEX_BITS, SPROP_UNSIGNED ) ),
 #endif
+
+#ifdef HOE_DLL
+	SendPropString( SENDINFO( m_iszCCImageName ), 0, SendProxy_String_tToString ),
+#endif // HOE_DLL
 
 END_SEND_TABLE()
 
@@ -411,6 +423,11 @@ CBaseEntity::CBaseEntity( bool bServerOnly )
 
 #ifndef _XBOX
 	AddEFlags( EFL_USE_PARTITION_WHEN_NOT_SOLID );
+#endif
+
+#ifdef HOE_DLL
+	m_flUseableFOV = -1;
+	m_iszCCImageName = NULL_STRING;
 #endif
 }
 
@@ -1934,6 +1951,22 @@ BEGIN_DATADESC_NO_BASE( CBaseEntity )
 	DEFINE_OUTPUT( m_OnUser3, "OnUser3" ),
 	DEFINE_OUTPUT( m_OnUser4, "OnUser4" ),
 
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_iszCCImageName, FIELD_STRING, "cc_icon" ),
+
+	DEFINE_KEYFIELD( m_iszUseableString, FIELD_STRING, "UseableString" ),
+	DEFINE_KEYFIELD( m_angUseable, FIELD_VECTOR, "UseableAngles" ),
+	DEFINE_KEYFIELD( m_flUseableFOV, FIELD_FLOAT, "UseableFOV" ),
+
+	DEFINE_INPUTFUNC( FIELD_STRING, "SetUseableString", InputSetUseableString ),
+	DEFINE_INPUTFUNC( FIELD_FLOAT, "SetUseableFOV", InputSetUseableFOV ),
+
+	DEFINE_OUTPUT( m_OnUseableEnter, "OnUseableEnter" ),
+	DEFINE_OUTPUT( m_OnUseableLeave, "OnUseableLeave" ),
+	DEFINE_OUTPUT( m_OnPlayerLook, "OnPlayerLook" ),
+	DEFINE_OUTPUT( m_OnPlayerUnlook, "OnPlayerUnlook" ),
+#endif
+
 	// Function Pointers
 	DEFINE_FUNCTION( SUB_Remove ),
 	DEFINE_FUNCTION( SUB_DoNothing ),
@@ -2822,7 +2855,17 @@ bool CBaseEntity::FVisible( CBaseEntity *pEntity, int traceMask, CBaseEntity **p
 			if ( tr.m_pEnt == pPlayer->GetVehicleEntity() )
 				return true;
 		}
-
+#ifdef HOE_DLL
+		// HACK HACK HACK - For bullseye parented to prop_ragdoll (see CHOEHuman::Event_KilledOther)
+		if ( pEntity && pEntity->Classify() == CLASS_BULLSEYE )
+		{
+			if ( tr.m_pEnt && tr.m_pEnt == pEntity->GetParent() &&
+				FClassnameIs( pEntity->GetParent(), "prop_ragdoll" ) )
+			{
+				return true;
+			}
+		}
+#endif
 		if (ppBlocker)
 		{
 			*ppBlocker = tr.m_pEnt;
@@ -2921,6 +2964,17 @@ Class_T CBaseEntity::Classify ( void )
 { 
 	return CLASS_NONE;
 }
+
+#ifdef HOE_DLL
+bool CBaseEntity::ClassifyPlayerAlly( void )
+{
+	return false;
+}
+bool CBaseEntity::ClassifyPlayerAllyVital( void )
+{
+	return false;
+}
+#endif
 
 float CBaseEntity::GetAutoAimRadius()
 {
@@ -6661,6 +6715,13 @@ void CBaseEntity::DispatchResponse( const char *conceptName )
 		break;
 	case RESPONSE_SENTENCE:
 		{
+#ifdef HOE_DLL
+			if ( response[0] != '!' )
+			{
+				/*sentenceIndex = */SENTENCEG_PlayRndSz( edict(), response, 1, result.GetSoundLevel(), 0, PITCH_NORM );
+				break;
+			}
+#endif // HOE_DLL
 			int sentenceIndex = SENTENCEG_Lookup( response );
 			if( sentenceIndex == -1 )
 			{
@@ -7028,11 +7089,53 @@ void CBaseEntity::EmitSentenceByIndex( IRecipientFilter& filter, int iEntIndex, 
 	const Vector *pOrigin /*=NULL*/, const Vector *pDirection /*=NULL*/, 
 	bool bUpdatePositions /*=true*/, float soundtime /*=0.0f*/ )
 {
+#ifdef HOE_DLL
+//	extern void entindex_EmitSentence( int entindex );
+//	entindex_EmitSentence( iEntIndex );
+#endif // HOE_DLL
 	CUtlVector< Vector > dummy;
 	enginesound->EmitSentenceByIndex( filter, iEntIndex, iChannel, iSentenceIndex, 
 		flVolume, iSoundlevel, iFlags, iPitch, 0, pOrigin, pDirection, &dummy, bUpdatePositions, soundtime );
+#ifdef HOE_DLL
+//	entindex_EmitSentence( -1 );
+
+	extern const char *HOE_SentenceCaptionFromIndex( int sentenceIndex );
+	const char *caption = HOE_SentenceCaptionFromIndex( iSentenceIndex );
+	if ( caption && caption[0] )
+	{
+		float flDuration = engine->SentenceLength( iSentenceIndex );
+		EmitCloseCaption( filter, iEntIndex, caption, dummy, flDuration );
+	}
+#endif // HOE_DLL
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CBaseEntity::EmitPlayerUseSound( void )
+{
+	// Robin: Don't play sounds for NPCs, because NPCs will allow respond with speech.
+	if ( !MyNPCPointer() )
+	{
+		EmitSound( "HL2Player.Use" );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CBaseEntity::RescindClosedCaption( void )
+{
+	if ( m_nClosedCaptionID )
+	{
+		CRecipientFilter filter;
+		filter.AddAllPlayers();
+
+		UserMessageBegin( filter, "RescindClosedCaption" );
+			WRITE_SHORT( m_nClosedCaptionID );
+		MessageEnd();
+
+		m_nClosedCaptionID = 0;
+	}
+}
+#endif // HOE_DLL
 
 void CBaseEntity::SetRefEHandle( const CBaseHandle &handle )
 {
@@ -7294,6 +7397,64 @@ void CBaseEntity::SetCollisionBoundsFromModel()
 	}
 }
 
+#ifdef HOE_DLL
+void CBaseEntity::InputSetUseableString( inputdata_t &inputdata )
+{
+	string_t string = inputdata.value.StringID();
+
+	// Hack -- If this entity is displaying its useable string then redisplay it.
+	CBasePlayer *pBasePlayer = AI_GetSinglePlayer();
+	if ( pBasePlayer && m_iszUseableString != string )
+	{
+		CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player*>(pBasePlayer);
+		if ( pHL2Player->m_hUseableEntity == this )
+		{
+#if 1
+			pHL2Player->SetUseableEntityString( string );
+#else
+			// See UTIL_ShowMessage and CMessage::InputShowMessage (ie, env_message)
+			CRecipientFilter filter;
+			filter.AddRecipient( pBasePlayer );
+			filter.MakeReliable();
+			UserMessageBegin( filter, "HudUseableText" );
+				WRITE_STRING( STRING(string) );
+			MessageEnd();
+#endif
+		}
+	}
+
+	m_iszUseableString = string;
+}
+
+void CBaseEntity::InputSetUseableFOV( inputdata_t &inputdata )
+{
+	m_flUseableFOV = clamp( inputdata.value.Float(), -1.0f, 1.0f );
+}
+
+void CBaseEntity::OnUseableEnter( CBasePlayer *player )
+{
+	m_OnUseableEnter.FireOutput( player, this );
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player*>(player);
+	pHL2Player->SetUseableEntityString( m_iszUseableString );
+}
+
+void CBaseEntity::OnUseableLeave( CBasePlayer *player )
+{
+	m_OnUseableLeave.FireOutput( player, this );
+	CHL2_Player *pHL2Player = dynamic_cast<CHL2_Player*>(player);
+	pHL2Player->SetUseableEntityString( NULL_STRING );
+}
+
+void CBaseEntity::OnPlayerLook( CBasePlayer *player )
+{
+	m_OnPlayerLook.FireOutput( player, this );
+}
+
+void CBaseEntity::OnPlayerUnlook( CBasePlayer *player )
+{
+	m_OnPlayerUnlook.FireOutput( player, this );
+}
+#endif // HOE_DLL
 
 //------------------------------------------------------------------------------
 // Purpose: Create an NPC of the given type
@@ -7472,3 +7633,16 @@ void CC_Ent_Orient( const CCommand& args )
 }
 
 static ConCommand ent_orient("ent_orient", CC_Ent_Orient, "Orient the specified entity to match the player's angles. By default, only orients target entity's YAW. Use the 'allangles' option to orient on all axis.\n\tFormat: ent_orient <entity name> <optional: allangles>", FCVAR_CHEAT);
+
+#ifdef HOE_DLL
+//------------------------------------------------------------------------------
+void CC_Ent_God( const CCommand& args )
+{
+	CBaseEntity *pEntity = NULL;
+	while ( (pEntity = GetNextCommandEntity( UTIL_GetCommandClient(), args[1], pEntity )) != NULL )
+	{
+		pEntity->m_takedamage = DAMAGE_EVENTS_ONLY;
+	}
+}
+static ConCommand ent_god("ent_god", CC_Ent_God, "HOE: set m_takedamage to DAMAGE_EVENTS_ONLY.\n\tArguments:   	{entity_name} / {class_name} / no argument picks what player is looking at ", FCVAR_CHEAT);
+#endif // HOE_DLL

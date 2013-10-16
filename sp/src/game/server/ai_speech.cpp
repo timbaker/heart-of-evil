@@ -83,7 +83,11 @@ public:
 		CUtlDict< ConceptHistory_t, int > *ch = ((CUtlDict< ConceptHistory_t, int > *)fieldInfo.pField);
 		int count = ch->Count();
 		pSave->WriteInt( &count );
+#ifdef HOE_DLL // BUG
+		for ( int i = ch->First(); i != ch->InvalidIndex(); i = ch->Next( i ) )
+#else
 		for ( int i = 0 ; i < count; i++ )
+#endif
 		{
 			ConceptHistory_t *pHistory = &(*ch)[ i ];
 

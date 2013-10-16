@@ -86,6 +86,9 @@ public:
 
 	virtual		void		CAM_Think( void );
 	virtual		int			CAM_IsThirdPerson( void );
+#ifdef HOE_THIRDPERSON
+	virtual		void		CAM_GetCameraOffset2( Vector& ofs );
+#endif
 	virtual		void		CAM_ToThirdPerson(void);
 	virtual		void		CAM_ToFirstPerson(void);
 	virtual		void		CAM_StartMouseMove(void);
@@ -228,6 +231,9 @@ private:
 	bool		m_fCameraMovingWithMouse;
 
 	
+#ifdef HOE_THIRDPERSON
+	Vector		m_vecCameraOffset2;
+#endif
 	// Is the camera in distance moving mode?
 	bool		m_fCameraDistanceMove;
 	// Old and current mouse position readings.

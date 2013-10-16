@@ -78,7 +78,11 @@ bool CAI_TacticalServices::FindLos(const Vector &threatPos, const Vector &threat
 
 	MARK_TASK_EXPENSIVE();
 
+#ifdef HOE_DLL
+	int node = FindLosNode( GetOuter()->GetAbsOrigin(), threatPos, threatEyePos, 
+#else
 	int node = FindLosNode( threatPos, threatEyePos, 
+#endif
 											 minThreatDist, maxThreatDist, 
 											 blockTime, eFlankType, vecFlankRefPos, flFlankParam );
 	
@@ -95,6 +99,32 @@ bool CAI_TacticalServices::FindLos(const Vector &threatPos, const Vector &threat
 {
 	return FindLos( threatPos, threatEyePos, minThreatDist, maxThreatDist, blockTime, FLANKTYPE_NONE, vec3_origin, 0, pResult );
 }
+
+#ifdef HOE_DLL
+//-------------------------------------
+bool CAI_TacticalServices::FindLosFromThreatPos(const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, FlankType_t eFlankType, const Vector &vecFlankRefPos, float flFlankParam, Vector *pResult)
+{
+	AI_PROFILE_SCOPE( CAI_TacticalServices_FindLos );
+
+	MARK_TASK_EXPENSIVE();
+
+	int node = FindLosNode( threatPos, threatPos, threatEyePos, 
+							minThreatDist, maxThreatDist, 
+							blockTime, eFlankType, vecFlankRefPos, flFlankParam );
+	
+	if (node == NO_NODE)
+		return false;
+
+	*pResult = GetNodePos( node );
+	return true;
+}
+
+//-------------------------------------
+bool CAI_TacticalServices::FindLosFromThreatPos(const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, Vector *pResult)
+{
+	return FindLos( threatPos, threatEyePos, minThreatDist, maxThreatDist, blockTime, FLANKTYPE_NONE, vec3_origin, 0, pResult );
+}
+#endif // HOE_DLL
 
 //-------------------------------------
 
@@ -390,6 +420,9 @@ int CAI_TacticalServices::FindCoverNode(const Vector &vNearPos, const Vector &vT
 	{
 		// Get the node that is closest in the number of steps and remove from the list
 		int nodeIndex = list.ElementAtHead().nodeIndex;
+#ifdef HOE_DLL
+		float pathLength = list.ElementAtHead().dist;
+#endif
 		list.RemoveAtHead();
 
 		CAI_Node *pNode = GetNetwork()->GetNode(nodeIndex);
@@ -457,6 +490,25 @@ int CAI_TacticalServices::FindCoverNode(const Vector &vNearPos, const Vector &vT
 				// Don't accept climb nodes or nodes that aren't ready to use yet
 				if ( GetNetwork()->GetNode(newID)->GetType() != NODE_CLIMB && !GetNetwork()->GetNode(newID)->IsLocked() )
 				{
+#ifdef HOE_DLL
+					Vector node2Origin = GetNetwork()->GetNode(newID)->GetPosition(GetHullType());
+					float pathLength2 = pathLength + (node2Origin - nodeOrigin).LengthSqr();
+
+					if ( pathLength2 <= flMaxDistSqr )
+					{
+						dist = (vNearPos - nodeOrigin).LengthSqr();
+
+						// use distance to threat as a heuristic to keep AIs from running toward
+						// the threat in order to take cover from it.
+						float threatDist = (vThreatPos - nodeOrigin).LengthSqr();
+
+						// Now check this node is not too close towards the threat
+						if ( dist < threatDist * 1.5 )
+						{
+							list.Insert( AI_NearNode_t(newID, pathLength2) );
+						}
+					}
+#else
 					// UNDONE: Shouldn't we really accumulate the distance by path rather than
 					// absolute distance.  After all, we are performing essentially an A* here.
 					nodeOrigin = GetNetwork()->GetNode(newID)->GetPosition(GetHullType());
@@ -471,6 +523,7 @@ int CAI_TacticalServices::FindCoverNode(const Vector &vNearPos, const Vector &vT
 					{
 						list.Insert( AI_NearNode_t(newID, dist) );
 					}
+#endif
 				}
 				// mark visited
 				wasVisited.Set(newID);
@@ -500,6 +553,24 @@ int CAI_TacticalServices::FindCoverNode(const Vector &vNearPos, const Vector &vT
 // Output :	int				- ID number of node that meets qualifications
 //-------------------------------------
 
+#ifdef HOE_DLL
+int CAI_TacticalServices::FindLosNode( const Vector &vStartPos, const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinThreatDist, float flMaxThreatDist, float flBlockTime, FlankType_t eFlankType, const Vector &vecFlankRefPos, float flFlankParam )
+{
+	if ( !CAI_NetworkManager::NetworksLoaded() )
+		return NO_NODE;
+
+	AI_PROFILE_SCOPE( CAI_TacticalServices_FindLosNode );
+
+	MARK_TASK_EXPENSIVE();
+
+	int iMyNode	= GetPathfinder()->NearestNodeToPoint( vStartPos );
+	if ( iMyNode == NO_NODE )
+	{
+		Vector pos = vStartPos;
+		DevWarning( 2, "FindCover() - %s has no nearest node! (Check near %f %f %f)\n", GetEntClassname(), pos.x, pos.y, pos.z);
+		return NO_NODE;
+	}
+#else // HOE_DLL
 int CAI_TacticalServices::FindLosNode(const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinThreatDist, float flMaxThreatDist, float flBlockTime, FlankType_t eFlankType, const Vector &vecFlankRefPos, float flFlankParam )
 {
 	if ( !CAI_NetworkManager::NetworksLoaded() )
@@ -516,6 +587,7 @@ int CAI_TacticalServices::FindLosNode(const Vector &vThreatPos, const Vector &vT
 		DevWarning( 2, "FindCover() - %s has no nearest node! (Check near %f %f %f)\n", GetEntClassname(), pos.x, pos.y, pos.z);
 		return NO_NODE;
 	}
+#endif // HOE_DLL
 
 	// ------------------------------------------------------------------------------------
 	// We're going to search for a shoot node by expanding to our current node's neighbors
@@ -706,8 +778,280 @@ bool CAI_TacticalServices::TestLateralLos( const Vector &vecCheckStart, const Ve
 }
 
 
+#ifdef HOE_DLL // HUMAN_STRAFE
 //-------------------------------------
+bool CAI_TacticalServices::FindStrafeLos( const Vector &vecThreat, float flMinDist, float flMaxDist, Vector *pResult )
+{
+	AI_PROFILE_SCOPE( CAI_TacticalServices_FindStrafeLos );
 
+	if ( !m_bAllowFindLateralLos )
+	{
+		return false;
+	}
+
+	MARK_TASK_EXPENSIVE();
+
+	Vector	vecLeftTest;
+	Vector	vecRightTest;
+	Vector	vecStepRight;
+	Vector  vecCheckStart;
+//	bool	bLookingForEnemy = GetEnemy() && VectorsAreEqual(vecThreat, GetEnemy()->EyePosition(), 0.1f);
+	int		i;
+#if 0
+	if(  !bLookingForEnemy || GetOuter()->HasCondition(COND_SEE_ENEMY) || GetOuter()->HasCondition(COND_HAVE_ENEMY_LOS) || 
+		 GetOuter()->GetTimeScheduleStarted() == gpGlobals->curtime ) // Conditions get nuked before tasks run, assume should try
+	{
+#ifdef HOE_DLL // HUMAN_STRAFE
+		if ( !g_FindLateralLosMinDistHack )
+#endif // HOE_DLL
+		// My current position might already be valid.
+		if ( TestLateralLos(vecThreat, GetLocalOrigin()) )
+		{
+			*pResult = GetLocalOrigin();
+			return true;
+		}
+	}
+#endif
+	if( !ai_find_lateral_los.GetBool() )
+	{
+		// Allows us to turn off lateral LOS at the console. Allow the above code to run 
+		// just in case the NPC has line of sight to begin with.
+		return false;
+	}
+
+	int iChecks = COVER_CHECKS;
+	int iDelta = (flMaxDist - flMinDist) / iChecks;
+
+	Vector right;
+	AngleVectors( GetLocalAngles(), NULL, &right, NULL );
+	vecStepRight = right * iDelta;
+	vecStepRight.z = 0;
+
+	vecLeftTest = GetLocalOrigin() - right * flMinDist;
+	vecRightTest = GetLocalOrigin() + right * flMinDist;
+ 	vecCheckStart = vecThreat;
+
+	// Try a random left/right, random dist first
+	Vector vecRand = GetLocalOrigin();
+	if ( random->RandomInt(0,1) == 1 )
+	{
+		vecRand -= right * random->RandomFloat( flMinDist, flMaxDist );
+	}
+	else
+	{
+		vecRand += right * random->RandomFloat( flMinDist, flMaxDist );
+	}
+	if (TestLateralLos( vecCheckStart, vecRand ))
+	{
+		*pResult = vecRand;
+		return true;
+	}
+
+	for ( i = 0 ; i < iChecks; i++ )
+	{
+		if (TestLateralLos( vecCheckStart, vecLeftTest ))
+		{
+			*pResult = vecLeftTest;
+			return true;
+		}
+
+		if (TestLateralLos( vecCheckStart, vecRightTest ))
+		{
+			*pResult = vecRightTest;
+			return true;
+		}
+
+		vecLeftTest -= vecStepRight;
+		vecRightTest += vecStepRight;
+	}
+
+	return false;
+}
+
+//-------------------------------------
+bool CAI_TacticalServices::CanHearSoundAtPos( const CUtlVector< CSound * >& sounds, const Vector &vEarPos )
+{
+	for ( int i = 0; i < sounds.Count(); i++ )
+	{
+		CSound *pSound = sounds[i];
+		
+#ifdef HOE_SOUND_SHAPE
+		float flDist = ( pSound->HackGetSoundOrigin( vEarPos ) - vEarPos ).LengthSqr();
+#else // HOE_SOUND_SHAPE
+		float flDist = ( pSound->GetSoundOrigin() - vEarPos ).LengthSqr();
+#endif // HOE_SOUND_SHAPE
+
+		if ( flDist < pSound->Volume() *  pSound->Volume() )
+			return true;
+	}
+
+	return false;
+}
+
+//-------------------------------------
+int CAI_TacticalServices::FindCoverNodeFromSounds( const CUtlVector< CSound *>& sounds, const Vector &vNearPos, float flMinDist, float flMaxDist )
+{
+	if ( !CAI_NetworkManager::NetworksLoaded() )
+		return NO_NODE;
+
+	AI_PROFILE_SCOPE( CAI_TacticalServices_FindCoverNode );
+
+	MARK_TASK_EXPENSIVE();
+
+//	DebugFindCover( g_AIDebugFindCoverNode, GetOuter()->EyePosition(), vThreatEyePos, 0, 255, 255 );
+
+	int iMyNode = GetPathfinder()->NearestNodeToPoint( vNearPos );
+
+	if ( iMyNode == NO_NODE )
+	{
+		Vector pos = GetOuter()->GetAbsOrigin();
+		DevWarning( 2, "FindCover() - %s has no nearest node! (Check near %f %f %f)\n", GetEntClassname(), pos.x, pos.y, pos.z);
+		return NO_NODE;
+	}
+
+	if ( !flMaxDist )
+	{
+		// user didn't supply a MaxDist, so work up a crazy one.
+		flMaxDist = 784;
+	}
+
+	if ( flMinDist > 0.5 * flMaxDist)
+	{
+		flMinDist = 0.5 * flMaxDist;
+	}
+
+	// ------------------------------------------------------------------------------------
+	// We're going to search for a cover node by expanding to our current node's neighbors
+	// and then their neighbors, until cover is found, or all nodes are beyond MaxDist
+	// ------------------------------------------------------------------------------------
+	AI_NearNode_t *pBuffer = (AI_NearNode_t *)stackalloc( sizeof(AI_NearNode_t) * GetNetwork()->NumNodes() );
+	CNodeList list( pBuffer, GetNetwork()->NumNodes() );
+	CVarBitVec wasVisited(GetNetwork()->NumNodes());	// Nodes visited
+
+	// mark start as visited
+	list.Insert( AI_NearNode_t(iMyNode, 0) ); 
+	wasVisited.Set( iMyNode );
+	float flMinDistSqr = flMinDist*flMinDist;
+	float flMaxDistSqr = flMaxDist*flMaxDist;
+
+	static int nSearchRandomizer = 0;		// tries to ensure the links are searched in a different order each time;
+
+	// Search until the list is empty
+	while( list.Count() )
+	{
+		// Get the node that is closest in the number of steps and remove from the list
+		int nodeIndex = list.ElementAtHead().nodeIndex;
+
+		float pathLength = list.ElementAtHead().dist;
+		list.RemoveAtHead();
+
+		CAI_Node *pNode = GetNetwork()->GetNode(nodeIndex);
+		Vector nodeOrigin = pNode->GetPosition(GetHullType());
+
+		float dist = (vNearPos - nodeOrigin).LengthSqr();
+
+		if (dist >= flMinDistSqr && dist < flMaxDistSqr)
+		{
+			Activity nCoverActivity = GetOuter()->GetCoverActivity( pNode->GetHint() );
+			Vector vEyePos = nodeOrigin + GetOuter()->EyeOffset(nCoverActivity);
+
+			if ( CanHearSoundAtPos( sounds, vEyePos ) == false )
+			{
+				// --------------------------------------------------------
+				// Don't let anyone else use this node for a while
+				// --------------------------------------------------------
+				pNode->Lock( 1.0 );
+
+				if ( pNode->GetHint() && ( pNode->GetHint()->HintType() == HINT_TACTICAL_COVER_MED || pNode->GetHint()->HintType() == HINT_TACTICAL_COVER_LOW ) )
+				{
+					if ( GetOuter()->GetHintNode() )
+					{
+						GetOuter()->GetHintNode()->Unlock(GetOuter()->GetHintDelay(GetOuter()->GetHintNode()->HintType()));
+						GetOuter()->SetHintNode( NULL );
+					}
+
+					GetOuter()->SetHintNode( pNode->GetHint() );
+				}
+
+				// The next NPC who searches should use a slight different pattern
+				nSearchRandomizer = nodeIndex;
+//				DebugFindCover( pNode->GetId(), vEyePos, vThreatEyePos, 0, 255, 0 );
+				return nodeIndex;
+			}
+			else
+			{
+//				DebugFindCover( pNode->GetId(), vEyePos, vThreatEyePos, 0, 0, 255 );
+			}
+		}
+
+		// Add its children to the search list
+		// Go through each link
+		// UNDONE: Pass in a cost function to measure each link?
+		for ( int link = 0; link < GetNetwork()->GetNode(nodeIndex)->NumLinks(); link++ ) 
+		{
+			int index = (link + nSearchRandomizer) % GetNetwork()->GetNode(nodeIndex)->NumLinks();
+			CAI_Link *nodeLink = GetNetwork()->GetNode(nodeIndex)->GetLinkByIndex(index);
+
+			if ( !m_pPathfinder->IsLinkUsable( nodeLink, iMyNode ) )
+				continue;
+
+			int newID = nodeLink->DestNodeID(nodeIndex);
+
+			// If not already on the closed list, add to it and set its distance
+			if (!wasVisited.IsBitSet(newID))
+			{
+				// Don't accept climb nodes or nodes that aren't ready to use yet
+				if ( GetNetwork()->GetNode(newID)->GetType() != NODE_CLIMB && !GetNetwork()->GetNode(newID)->IsLocked() )
+				{
+					Vector node2Origin = GetNetwork()->GetNode(newID)->GetPosition(GetHullType());
+					float pathLength2 = pathLength + (node2Origin - nodeOrigin).LengthSqr();
+
+					if ( pathLength2 <= flMaxDistSqr )
+					{
+//						dist = (vNearPos - nodeOrigin).LengthSqr();
+
+						// use distance to threat as a heuristic to keep AIs from running toward
+						// the threat in order to take cover from it.
+//						float threatDist = (vThreatPos - nodeOrigin).LengthSqr();
+
+						// Now check this node is not too close towards the threat
+//						if ( dist < threatDist * 1.5 )
+						{
+							list.Insert( AI_NearNode_t(newID, pathLength2) );
+						}
+					}
+				}
+
+				// mark visited
+				wasVisited.Set(newID);
+			}
+		}
+	}
+
+	// We failed.  Not cover node was found
+	// Clear hint node used to set ducking
+	GetOuter()->ClearHintNode();
+	return NO_NODE;
+}
+
+//-------------------------------------
+bool CAI_TacticalServices::FindCoverPosFromSounds( const CUtlVector< CSound *>& sounds, float flMinDist, float flMaxDist, Vector *pResult )
+{
+	AI_PROFILE_SCOPE( CAI_TacticalServices_FindCoverPosFromSounds );
+
+	MARK_TASK_EXPENSIVE();
+
+	int node = FindCoverNodeFromSounds( sounds, GetAbsOrigin(), flMinDist, flMaxDist );
+	
+	if (node == NO_NODE)
+		return false;
+
+	*pResult = GetNodePos( node );
+	return true;
+}
+#endif // HOE_DLL
+
+//-------------------------------------
 bool CAI_TacticalServices::FindLateralLos( const Vector &vecThreat, Vector *pResult )
 {
 	AI_PROFILE_SCOPE( CAI_TacticalServices_FindLateralLos );

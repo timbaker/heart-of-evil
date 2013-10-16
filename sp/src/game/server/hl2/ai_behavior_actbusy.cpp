@@ -690,7 +690,11 @@ bool CAI_ActBusyBehavior::ShouldIgnoreSound( CSound *pSound )
 			*/
 
 			// Ignore sounds that aren't visible
+#ifdef HOE_SOUND_SHAPE
+			if ( !GetOuter()->FVisible( pSound->HackGetSoundReactOrigin( GetOuter()->EarPosition() ) ) )
+#else // HOE_SOUND_SHAPE
 			if ( !GetOuter()->FVisible( pSound->GetSoundReactOrigin() ) )
+#endif // HOE_SOUND_SHAPE
 				return true;
 		}
 	}

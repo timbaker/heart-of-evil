@@ -456,7 +456,12 @@ CGib *CGibShooter::CreateGib ( void )
 		return NULL;
 
 	CGib *pGib = CREATE_ENTITY( CGib, "gib" );
+#ifdef HOE_DLL
+	extern const char *HGibModelRandom( void );
+	pGib->Spawn( HGibModelRandom() );
+#else // HOE_DLL
 	pGib->Spawn( "models/gibs/hgibs.mdl" );
+#endif // HOE_DLL
 	pGib->SetBloodColor( BLOOD_COLOR_RED );
 
 	if ( m_nMaxGibModelFrame <= 1 )
@@ -464,7 +469,9 @@ CGib *CGibShooter::CreateGib ( void )
 		DevWarning( 2, "GibShooter Body is <= 1!\n" );
 	}
 
+#ifndef HOE_DLL
 	pGib->m_nBody = random->RandomInt ( 1, m_nMaxGibModelFrame - 1 );// avoid throwing random amounts of the 0th gib. (skull).
+#endif
 
 	if ( m_iszLightingOrigin != NULL_STRING )
 	{
@@ -1296,20 +1303,34 @@ public:
 	void	Precache( void );
 	void	Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
 	bool	KeyValue( const char *szKeyName, const char *szValue );
+#ifdef HOE_DLL
+	bool	HasRoomToSpawn( void );
+	void	ShootThink( void );
+#endif
 
 	// Input handlers.
 	void	InputActivate( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void	InputShoot( inputdata_t &inputdata );
+#endif
 
 	DECLARE_DATADESC();
 
 public:
 	bool	m_CanInDispenser;
 	int		m_nBeverageType;
+#ifdef HOE_DLL
+	int		m_iShootCount;
+#endif
 };
 
 void CEnvBeverage::Precache ( void )
 {
+#ifdef HOE_DLL
+	UTIL_PrecacheOther( "item_sodacan" );
+#else
 	PrecacheModel( "models/can.mdl" );
+#endif
 }
 
 BEGIN_DATADESC( CEnvBeverage )
@@ -1317,6 +1338,11 @@ BEGIN_DATADESC( CEnvBeverage )
 	DEFINE_FIELD( m_nBeverageType, FIELD_INTEGER ),
 
 	DEFINE_INPUTFUNC( FIELD_VOID, "Activate", InputActivate ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_INTEGER, "Shoot", InputShoot ),
+
+	DEFINE_THINKFUNC( ShootThink ),
+#endif
 END_DATADESC()
 
 LINK_ENTITY_TO_CLASS( env_beverage, CEnvBeverage );
@@ -1338,13 +1364,23 @@ bool CEnvBeverage::KeyValue( const char *szKeyName, const char *szValue )
 
 void CEnvBeverage::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 {
+#ifdef HOE_DLL
+	if ( !HasRoomToSpawn() || m_iHealth <= 0 )
+#else
 	if ( m_CanInDispenser || m_iHealth <= 0 )
+#endif
 	{
 		// no more cans while one is waiting in the dispenser, or if I'm out of cans.
 		return;
 	}
 
+#ifdef HOE_DLL
+	QAngle angles = GetLocalAngles();
+	angles[YAW] = UTIL_AngleMod( 90 );
+	CBaseAnimating *pCan = (CBaseAnimating *)CBaseEntity::Create( "item_sodacan", GetLocalOrigin(), angles, this );	
+#else
 	CBaseAnimating *pCan = (CBaseAnimating *)CBaseEntity::Create( "item_sodacan", GetLocalOrigin(), GetLocalAngles(), this );
+#endif
 
 	if ( m_nBeverageType == 6 )
 	{
@@ -1368,6 +1404,82 @@ void CEnvBeverage::InputActivate( inputdata_t &inputdata )
 	Use( inputdata.pActivator, inputdata.pCaller, USE_ON, 0 );
 }
 
+#ifdef HOE_DLL
+
+bool CEnvBeverage::HasRoomToSpawn( void )
+{
+	// Can is 4x4x7
+
+	Vector mins( -3.5, -3.5, 0 );
+	Vector maxs( 3.5, 3.5, 7 );
+
+	trace_t tr;
+	UTIL_TraceHull( GetAbsOrigin(), GetAbsOrigin(), mins, maxs, MASK_SOLID, this, COLLISION_GROUP_NONE, &tr );
+	if ( tr.m_pEnt || tr.startsolid )
+	{
+		return false;
+	}
+
+	return true;
+}
+
+#define BEV_SHOOT_THINK_CONTEXT "EnvBeverageShootThinkContext"
+
+void CEnvBeverage::InputShoot( inputdata_t &inputdata )
+{
+	m_iShootCount = inputdata.value.Int();
+	SetContextThink( &CEnvBeverage::ShootThink, gpGlobals->curtime, BEV_SHOOT_THINK_CONTEXT );
+}
+
+void CEnvBeverage::ShootThink( void )
+{
+	QAngle angles = GetLocalAngles();
+	angles[YAW] = UTIL_AngleMod( 90 );
+	CBaseAnimating *pCan = (CBaseAnimating *)CBaseEntity::Create( "item_sodacan", GetLocalOrigin(), angles, this );	
+	if ( m_nBeverageType == 6 )
+	{
+		// random
+		pCan->m_nSkin = random->RandomInt( 0, 5 );
+	}
+	else
+	{
+		pCan->m_nSkin = m_nBeverageType;
+	}
+
+	// from env_entity_maker
+	Vector vForward, vRight, vUp;
+	AngleVectors( GetLocalAngles(), &vForward, &vRight, &vUp );
+	float flSpeed = 100.0f;
+	float flVariance = 0.15f;
+	Vector vecShootDir = vForward * flSpeed;
+	vecShootDir += vRight * random->RandomFloat(-1, 1) * flVariance;
+	vecShootDir += vForward * random->RandomFloat(-1, 1) * flVariance;
+	vecShootDir += vUp * random->RandomFloat(-1, 1) * flVariance;
+	VectorNormalize( vecShootDir );
+	vecShootDir *= flSpeed;
+
+	IPhysicsObject *pPhysicsObject = pCan->VPhysicsGetObject();
+	if ( pPhysicsObject )
+	{
+		pPhysicsObject->AddVelocity(&vecShootDir, NULL);
+	}
+	else
+	{
+		pCan->SetAbsVelocity( vecShootDir );
+	}
+
+	if ( --m_iShootCount > 0 )
+	{
+		SetContextThink( &CEnvBeverage::ShootThink, gpGlobals->curtime + 0.1f, BEV_SHOOT_THINK_CONTEXT );
+	}
+	else
+	{
+		SetContextThink( NULL, TICK_NEVER_THINK, BEV_SHOOT_THINK_CONTEXT );
+	}
+}
+
+#endif // HOE_DLL
+
 void CEnvBeverage::Spawn( void )
 {
 	Precache();
@@ -1384,6 +1496,8 @@ void CEnvBeverage::Spawn( void )
 //=========================================================
 // Soda can
 //=========================================================
+#ifdef HOE_DLL // made physics-enabled for HOE
+#else
 class CItemSoda : public CBaseAnimating
 {
 public:
@@ -1465,6 +1579,7 @@ void CItemSoda::CanTouch ( CBaseEntity *pOther )
 	SetThink ( &CItemSoda::SUB_Remove );
 	SetNextThink( gpGlobals->curtime );
 }
+#endif // HOE_DLL
 
 #ifndef _XBOX
 //=========================================================

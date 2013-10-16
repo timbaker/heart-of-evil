@@ -146,7 +146,11 @@ private:
 	// Muzzle flash sprites
 	struct model_t			*m_pSpriteMuzzleFlash[10];
 	struct model_t			*m_pSpriteAR2Flash[4];
+#ifdef HOE_DLL
+	struct model_t			*m_pShells[5]; // Addd buckshot (3) and elephantshot (4)
+#else // HOE_DLL
 	struct model_t			*m_pShells[3];
+#endif // HOE_DLL
 	struct model_t			*m_pSpriteCombineFlash[2];
 
 #if defined( HL1_CLIENT_DLL )

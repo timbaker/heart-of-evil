@@ -53,7 +53,19 @@ enum TrainOrientationType_t
         TrainOrientation_AtPathTracks,
         TrainOrientation_LinearBlend,
         TrainOrientation_EaseInEaseOut,
+#ifdef HOE_DLL
+        TrainOrientation_TrackAngles,
+        TrainOrientation_Last,
+#endif // HOE_DLL
 };
+
+#ifdef HOE_DLL
+enum TrainBankType_t
+{
+	TrainBank_UseKeyValue = 0,
+	TrainBank_DirectionOfMotion,
+};
+#endif // HOE_DLL
 
 class CFuncTrackTrain : public CBaseEntity
 {
@@ -111,6 +123,10 @@ public:
 	void InputSetSpeedDirAccel( inputdata_t &inputdata );
 	void InputTeleportToPathTrack( inputdata_t &inputdata );
 	void InputSetSpeedForwardModifier( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void InputTeleport( inputdata_t &inputdata );
+	void InputSetOrientationType( inputdata_t &inputdata );
+#endif
 
 	static CFuncTrackTrain *Instance( edict_t *pent );
 
@@ -162,6 +178,9 @@ private:
 	void UpdateTrainOrientation( CPathTrack *pnext, CPathTrack *pNextNext, const Vector &nextPos, float flInterval );
 	void UpdateOrientationAtPathTracks( CPathTrack *pnext, CPathTrack *pNextNext, const Vector &nextPos, float flInterval );
 	void UpdateOrientationBlend( TrainOrientationType_t eOrientationType, CPathTrack *pPrev, CPathTrack *pNext, const Vector &nextPos, float flInterval );
+#ifdef HOE_DLL
+	void UpdateOrientationTrackAngles( CPathTrack *pnext, CPathTrack *pNextNext, const Vector &nextPos, float flInterval );
+#endif // HOE_DLL
 	void DoUpdateOrientation( const QAngle &curAngles, const QAngle &angles, float flInterval );
 
 	void TeleportToPathTrack( CPathTrack *pTeleport );
@@ -173,6 +192,9 @@ private:
 	int			m_lastBlockTick;			// ^^^^^^^
 	float		m_flVolume;
 	float		m_flBank;
+#ifdef HOE_DLL
+	float		m_flBankSpeed;
+#endif
 	float		m_oldSpeed;
 	float		m_flBlockDamage;			// Damage to inflict when blocked.
 	float		m_height;
@@ -194,6 +216,9 @@ private:
 
 	TrainOrientationType_t m_eOrientationType;
 	TrainVelocityType_t m_eVelocityType;
+#ifdef HOE_DLL
+	TrainBankType_t m_eBankType;
+#endif
 	bool		m_bSoundPlaying;
 
 	COutputEvent m_OnStart,m_OnNext; 

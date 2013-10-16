@@ -41,6 +41,9 @@ private:
 
 	bool m_bDisabled;
 	bool m_bWaitForRefire;			// Set to disallow a refire while we are waiting for our outputs to finish firing.
+#ifdef HOE_DLL
+	string_t m_sMaster;
+#endif
 };
 
 #endif //LOGICRELAY_H

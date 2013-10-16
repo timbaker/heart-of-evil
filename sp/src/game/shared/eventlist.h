@@ -85,6 +85,10 @@ typedef enum
 
 	AE_WPN_PLAYWPNSOUND,	// Play a weapon sound from the weapon script file
 
+#ifdef HOE_DLL
+	AE_SV_BODYGROUP_SET_VALUE,
+#endif // HOE_DLL
+
 	LAST_SHARED_ANIMEVENT,
 } Animevent;
 

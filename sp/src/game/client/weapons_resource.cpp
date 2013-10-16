@@ -78,6 +78,61 @@ void WeaponsResource::LoadAllWeaponSprites( void )
 	}
 }
 
+#ifdef HOE_DLL
+static void LoadWeaponSelectionHUD( WEAPON_FILE_INFO_HANDLE hWeaponFileInfo )
+{
+	FileWeaponInfo_t *pWeaponInfo = GetFileWeaponInfoFromHandle( hWeaponFileInfo );
+	if ( !pWeaponInfo )
+		return;
+
+	pWeaponInfo->WeaponSelectionHUD_Angles.Init();
+	pWeaponInfo->WeaponSelectionHUD_Origin.Init();
+	pWeaponInfo->WeaponSelectionHUD_Model[0] = '\0';
+	pWeaponInfo->WeaponSelectionHUD_Anim[0] = '\0';
+
+	char sz[128];
+	Q_snprintf(sz, sizeof( sz ), "scripts/%s", pWeaponInfo->szClassName);
+
+	KeyValues *pKeyValuesData = ReadEncryptedKVFile( filesystem, sz, g_pGameRules->GetEncryptionKey() );
+	if ( pKeyValuesData )
+	{
+		KeyValues *pHUDSection = pKeyValuesData->FindKey( "WeaponSelectionHUD" );
+		if ( pHUDSection  )
+		{
+			float dx, dy, dz;
+			const char *s;
+
+			s = pHUDSection->GetString( "angles", "0 -90 0" );
+			if ( sscanf( s, "%g %g %g", &dx, &dy, &dz ) == 3 )
+				pWeaponInfo->WeaponSelectionHUD_Angles.Init( dx, dy, dz );
+
+			s = pHUDSection->GetString( "origin", "-80 0 0" );
+			if ( sscanf( s, "%g %g %g", &dx, &dy, &dz ) == 3 )
+				pWeaponInfo->WeaponSelectionHUD_Origin.Init( dx, dy, dz );
+
+			Q_strncpy( pWeaponInfo->WeaponSelectionHUD_Model,
+				pHUDSection->GetString( "model" ), MAX_WEAPON_STRING );
+		}
+		pKeyValuesData->deleteThis();
+	}
+}
+static void WeaponSelectionReload_f( void )
+{
+	C_BasePlayer *player = C_BasePlayer::GetLocalPlayer();
+	if ( !player )
+		return;
+
+	for (int i = 0; i < MAX_WEAPONS; i++)
+	{
+		if ( player->GetWeapon(i) )
+		{
+			LoadWeaponSelectionHUD( player->GetWeapon(i)->GetWeaponFileInfoHandle() );
+		}
+	}
+}
+static ConCommand hoe_weaponselection_reload( "hoe_weaponselection_reload", WeaponSelectionReload_f, "Reload WeaponSelectionHUD section from scripts/weapon_xxx.txt files.", FCVAR_CLIENTDLL );
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -105,6 +160,10 @@ void WeaponsResource::LoadWeaponSprites( WEAPON_FILE_INFO_HANDLE hWeaponFileInfo
 
 	char sz[128];
 	Q_snprintf(sz, sizeof( sz ), "scripts/%s", pWeaponInfo->szClassName);
+
+#ifdef HOE_DLL
+	LoadWeaponSelectionHUD( hWeaponFileInfo );
+#endif // HOE_DLL
 
 	CUtlDict< CHudTexture *, int > tempList;
 

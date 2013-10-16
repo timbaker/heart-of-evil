@@ -28,6 +28,10 @@
 #include "vstdlib/random.h"
 #include "engine/IEngineSound.h"
 #include "movevars_shared.h"
+#ifdef HOE_DLL
+#include "beam_flags.h"
+#include "explode.h"
+#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -35,7 +39,11 @@
 #define	HOUNDEYE_MAX_ATTACK_RADIUS		500
 #define	HOUNDEYE_MIN_ATTACK_RADIUS		100
 
+#ifdef HOE_DLL
+#define HOUNDEYE_EYE_FRAMES 3 // how many different switchable maps for the eye
+#else
 #define HOUNDEYE_EYE_FRAMES 4 // how many different switchable maps for the eye
+#endif
 
 ConVar	sk_Houndeye_health( "sk_Houndeye_health","0");
 ConVar	sk_Houndeye_dmg_blast( "sk_Houndeye_dmg_blast","0");
@@ -71,6 +79,9 @@ enum Houndeye_Conds
 	COND_HOUND_GROUP_ATTACK = LAST_SHARED_CONDITION,
 	COND_HOUND_GROUP_RETREAT,
 	COND_HOUND_GROUP_RALLEY,
+#ifdef HOE_DLL
+	COND_HOUND_ENEMY_DISTANT,
+#endif
 };
 
 //=========================================================
@@ -89,6 +100,11 @@ enum
 	SCHED_HOUND_CHASE_ENEMY,
 	SCHED_HOUND_COVER_WAIT,
 	SCHED_HOUND_GROUP_RALLEY,
+#ifdef HOE_DLL
+	SCHED_HOUND_SLEEP,
+	SCHED_HOUND_WAKE_URGENT,
+	SCHED_HOUND_WAKE_LAZY,
+#endif
 };
 
 //=========================================================
@@ -108,6 +124,8 @@ int	ACT_HOUND_GUARD;
 #define		HOUND_AE_CLOSE_EYE		7
 #define		HOUND_AE_LEAP_HIT		8
 
+#ifdef HOE_DLL
+#else
 //-----------------------------------------------------------------------------
 // Purpose: Initialize the custom schedules
 // Input  :
@@ -157,9 +175,12 @@ void CNPC_Houndeye::InitCustomSchedules(void)
 	AI_LOAD_SCHEDULE(CNPC_Houndeye,	SCHED_HOUND_GROUP_RALLEY);
 }
 
+#endif
 LINK_ENTITY_TO_CLASS( npc_houndeye, CNPC_Houndeye );
+#ifdef HOE_DLL
+#else
 IMPLEMENT_CUSTOM_AI( npc_houndeye, CNPC_Houndeye );
-
+#endif
 BEGIN_DATADESC( CNPC_Houndeye )
 
 	DEFINE_FIELD( m_fAsleep,					FIELD_BOOLEAN ),
@@ -168,6 +189,10 @@ BEGIN_DATADESC( CNPC_Houndeye )
 	DEFINE_FIELD( m_bLoopClockwise,			FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_pEnergyWave,				FIELD_CLASSPTR ),
 	DEFINE_FIELD( m_flEndEnergyWaveTime,		FIELD_TIME ),	
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_bShouldGib,				FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flTimeStartIdle,		FIELD_TIME ),
+#endif
 
 END_DATADESC()
 
@@ -179,6 +204,39 @@ Class_T	CNPC_Houndeye::Classify ( void )
 {
 	return	CLASS_HOUNDEYE;
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CNPC_Houndeye::OnStateChange( NPC_STATE OldState, NPC_STATE NewState )
+{
+	if ( NewState == NPC_STATE_IDLE )
+	{
+		m_flTimeStartIdle = gpGlobals->curtime;
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CNPC_Houndeye::GatherConditions( void )
+{
+	BaseClass::GatherConditions();
+
+	// Abort the blast if no enemies are in range
+	SetCondition( COND_HOUND_ENEMY_DISTANT );
+	if ( IsCurSchedule( SCHED_RANGE_ATTACK1 ) )
+	{
+		AIEnemiesIter_t iter;
+		for ( AI_EnemyInfo_t *pEnemyInfo = GetEnemies()->GetFirst(&iter); pEnemyInfo != NULL; pEnemyInfo = GetEnemies()->GetNext(&iter) )
+		{
+			CBaseEntity *pEnemy = pEnemyInfo->hEnemy;
+			if ( pEnemy && (pEnemy->GetAbsOrigin() - GetAbsOrigin()).Length() < HOUNDEYE_MAX_ATTACK_RADIUS * 0.75)
+			{
+				ClearCondition( COND_HOUND_ENEMY_DISTANT );
+				break;
+			}
+		}
+	}
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -196,7 +254,11 @@ int CNPC_Houndeye::RangeAttack1Conditions ( float flDot, float flDist )
 	if (tr.startsolid)
 	{
 		CBaseEntity *pEntity = tr.m_pEnt;
+#ifdef HOE_DLL
+		if ( FClassnameIs(pEntity, "npc_houndeye") )
+#else
 		if (pEntity->Classify() == CLASS_HOUNDEYE)
+#endif
 		{
 			return( COND_NONE );
 		}
@@ -280,6 +342,12 @@ void CNPC_Houndeye::HandleAnimEvent( animevent_t *pEvent )
 			break;
 
 		case HOUND_AE_STARTATTACK:
+#ifdef HOE_DLL
+			CSoundEnt::InsertSound ( SOUND_DANGER, GetAbsOrigin(),
+				/*HOUNDEYE_MAX_ATTACK_RADIUS + NAI_Hull::Width( HULL_HUMAN )*/
+				HOUNDEYE_MAX_ATTACK_RADIUS * 0.75,
+				3.5, this );
+#endif
 			WarmUpSound();
 			break;
 
@@ -299,9 +367,16 @@ void CNPC_Houndeye::HandleAnimEvent( animevent_t *pEvent )
 			}
 
 		case HOUND_AE_THUMP:
+			{
 			// emit the shockwaves
 			SonicAttack();
+#ifdef HOE_DLL
+			m_bShouldGib = true;
+			TakeDamage( CTakeDamageInfo( this, this, GetHealth(), DMG_PREVENT_PHYSICS_FORCE | DMG_GENERIC | DMG_ALWAYSGIB ) );
+#else
 			m_flNextAttack = gpGlobals->curtime + random->RandomFloat( 5.0, 8.0 );
+#endif
+			}
 			break;
 
 		case HOUND_AE_ANGERSOUND1:
@@ -319,7 +394,11 @@ void CNPC_Houndeye::HandleAnimEvent( animevent_t *pEvent )
 		case HOUND_AE_CLOSE_EYE:
 			if ( !m_fDontBlink )
 			{
+#ifdef HOE_DLL
+				SetSkin( HOUNDEYE_EYE_FRAMES - 1 );
+#else // HOE_DLL
 			//<<TEMP>>	pev->skin = HOUNDEYE_EYE_FRAMES - 1;
+#endif // HOE_DLL
 			}
 			break;
 
@@ -406,8 +485,16 @@ void CNPC_Houndeye::Spawn()
 	Precache( );
 
 	SetModel("models/houndeye.mdl");
+#ifdef HOE_DLL
+	// This is too wide (30x30) and too tall (72), but need 25x25
+	SetHullType( HULL_LARGE );
+#else
 	SetHullType(HULL_WIDE_SHORT);
+#endif
 	SetHullSizeNormal();
+#ifdef HOE_DLL
+	UTIL_SetSize( this, Vector(-25,-25,0), Vector(25,25,50) );
+#endif
 
 	SetSolid( SOLID_BBOX );
 	AddSolidFlags( FSOLID_NOT_STANDABLE );
@@ -456,8 +543,11 @@ void CNPC_Houndeye::Precache()
 	PrecacheScriptSound( "NPC_Houndeye.GroupAttack" );
 	PrecacheScriptSound( "NPC_Houndeye.GroupFollow" );
 
-
+#ifdef HOE_DLL
+	m_iBeamRingEffectIndex = PrecacheModel( "sprites/physbeam.vmt" );
+#else
 	UTIL_PrecacheOther("grenade_energy");
+#endif
 	BaseClass::Precache();
 }	
 
@@ -521,7 +611,11 @@ void CNPC_Houndeye::AlertSound ( void )
 //=========================================================
 // DeathSound 
 //=========================================================
+#ifdef HOE_DLL
+void CNPC_Houndeye::DeathSound ( const CTakeDamageInfo &info )
+#else
 void CNPC_Houndeye::DeathSound ( void )
+#endif
 {
 	EmitSound( "NPC_Houndeye.Die" );
 }
@@ -529,7 +623,11 @@ void CNPC_Houndeye::DeathSound ( void )
 //=========================================================
 // PainSound 
 //=========================================================
+#ifdef HOE_DLL
+void CNPC_Houndeye::PainSound ( const CTakeDamageInfo &info )
+#else
 void CNPC_Houndeye::PainSound ( void )
+#endif
 {
 	EmitSound( "NPC_Houndeye.Pain" );
 }
@@ -670,6 +768,11 @@ void CNPC_Houndeye::Event_Killed( const CTakeDamageInfo &info )
 		m_pSquad->BroadcastInteraction( g_interactionHoundeyeGroupRetreat, NULL, this );
 	}
 
+#ifdef HOE_DLL
+	// Almost shut the eye
+	SetSkin( HOUNDEYE_EYE_FRAMES - 2 );
+#endif // HOE_DLL
+
 	BaseClass::Event_Killed( info );
 }
 
@@ -685,15 +788,42 @@ void CNPC_Houndeye::SonicAttack ( void )
 		UTIL_Remove(m_pEnergyWave);
 	}
 	Vector vFacingDir = EyeDirection3D( );
+#ifdef HOE_DLL
+		// blast circle
+		CBroadcastRecipientFilter filter;
+		te->BeamRingPoint( filter, 0.0, // FIXME: want TE_BEAMCYLINDER
+			GetAbsOrigin(),						//origin
+			0,									//start radius
+			HOUNDEYE_MAX_ATTACK_RADIUS * 2,		//end radius
+			m_iBeamRingEffectIndex,				//texture
+			0,									//halo index
+			0,									//start frame
+			0,									//framerate
+			0.5,								//life
+			32,									//width
+			0,									//spread
+			0,									//amplitude
+			255,								//r
+			255,								//g
+			255,								//b
+			50,									//a
+			0,									//speed
+			FBEAM_FADEOUT
+			);
+#else
 	m_pEnergyWave = (CEnergyWave*)Create( "energy_wave", EyePosition(), GetLocalAngles() );
 	m_flEndEnergyWaveTime = gpGlobals->curtime + 1; //<<TEMP>> magic
 	m_pEnergyWave->SetAbsVelocity( 100*vFacingDir );
-
+#endif
 	CBaseEntity *pEntity = NULL;
 	// iterate on all entities in the vicinity.
 	for ( CEntitySphereQuery sphere( GetAbsOrigin(), HOUNDEYE_MAX_ATTACK_RADIUS ); pEntity = sphere.GetCurrentEntity(); sphere.NextEntity() )
 	{
+#ifdef HOE_DLL
+		if ( FClassnameIs(pEntity, "npc_houndeye") )
+#else
 		if (pEntity->Classify()	== CLASS_HOUNDEYE)
+#endif
 		{
 			continue;
 		}
@@ -723,7 +853,11 @@ void CNPC_Houndeye::SonicAttack ( void )
 			float flDotPr		= DotProduct(forward,vEntDir);
 			flDamageAdjuster   *= flDotPr;
 
+#ifdef HOE_DLL
+			if (flDamageAdjuster <= 0)
+#else
 			if (flDamageAdjuster < 0)
+#endif
 			{
 				continue;
 			}
@@ -752,7 +886,15 @@ void CNPC_Houndeye::SonicAttack ( void )
 			// ------------------------------
 			if (pEntity->m_takedamage != DAMAGE_NO)
 			{
+#ifdef HOE_DLL
+				// Only gib if entity is close to the blast
+				int damageType = DMG_SONIC;
+				if ( flDist < HOUNDEYE_MAX_ATTACK_RADIUS / 3 )
+					damageType |= DMG_ALWAYSGIB;
+				CTakeDamageInfo info( this, this, flDamageAdjuster * sk_Houndeye_dmg_blast.GetFloat(), damageType );
+#else
 				CTakeDamageInfo info( this, this, flDamageAdjuster * sk_Houndeye_dmg_blast.GetFloat(), DMG_SONIC | DMG_ALWAYSGIB );
+#endif
 				CalculateExplosiveDamageForce( &info, (pEntity->GetAbsOrigin() - GetAbsOrigin()), pEntity->GetAbsOrigin() );
 
 				pEntity->TakeDamage( info );
@@ -782,6 +924,9 @@ void CNPC_Houndeye::SonicAttack ( void )
 			}
 		}
 	}
+#ifdef HOE_DLL
+	ExplosionCreate( GetAbsOrigin(), GetAbsAngles(), this, 100, 100, false );
+#endif
 }
 		
 //=========================================================
@@ -802,7 +947,18 @@ void CNPC_Houndeye::StartTask( const Task_t *pTask )
 			Vector vTargetPos = GetEnemyLKP();
 			vTargetPos.z	= GetFloorZ(vTargetPos);
 
+#ifdef HOE_DLL
+			float flRadius = 150.0; // distance from enemy
+			float flArc = 90.0;
+			float flStepDist = 10.0;
+			Vector vDestPos = vTargetPos;
+			vDestPos.x += flRadius * cos( DEG2RAD(flArc) );
+			vDestPos.y += flRadius * sin( DEG2RAD(flArc) );
+			if (GetNavigator()->SetRadialGoal(vDestPos, vTargetPos, flRadius, flArc, flStepDist, m_bLoopClockwise))
+#else
+
 			if (GetNavigator()->SetRadialGoal(vTargetPos, random->RandomInt(50,500), 90, 175, m_bLoopClockwise))
+#endif
 			{
 				TaskComplete();
 				return;
@@ -868,7 +1024,11 @@ void CNPC_Houndeye::StartTask( const Task_t *pTask )
 		}
 	case TASK_HOUND_CLOSE_EYE:
 		{
+#ifdef HOE_DLL
+			SetSkin( 0 );
+#else
 //<<TEMP>>			pev->skin = 0;
+#endif
 			m_fDontBlink = true; // tell blink code to leave the eye alone.
 			break;
 		}
@@ -915,12 +1075,19 @@ void CNPC_Houndeye::RunTask( const Task_t *pTask )
 		}
 	case TASK_HOUND_CLOSE_EYE:
 		{
+#ifdef HOE_DLL
+			if ( GetSkin() < HOUNDEYE_EYE_FRAMES - 1 )
+			{
+				SetSkin( GetSkin() + 1 );
+			}
+#else
 			/*//<<TEMP>>
 			if ( pev->skin < HOUNDEYE_EYE_FRAMES - 1 )
 			{
 				pev->skin++;
 			}
 			*/
+#endif
 			break;
 		}
 	case TASK_HOUND_HOP_BACK:
@@ -958,6 +1125,16 @@ void CNPC_Houndeye::PrescheduleThink ( void )
 	// at random, initiate a blink if not already blinking or sleeping
 	if ( !m_fDontBlink )
 	{
+#ifdef HOE_DLL
+		if ( ( GetSkin() == 0 ) && random->RandomInt(0,0x7F) == 0 )
+		{
+			SetSkin( HOUNDEYE_EYE_FRAMES - 1 );
+		}
+		else if ( GetSkin() != 0 )
+		{
+			SetSkin( GetSkin() - 1 );
+		}
+#else
 		/*//<<TEMP>>//<<TEMP>>
 		if ( ( pev->skin == 0 ) && random->RandomInt(0,0x7F) == 0 )
 		{// start blinking!
@@ -968,6 +1145,7 @@ void CNPC_Houndeye::PrescheduleThink ( void )
 			pev->skin--;
 		}
 		*/
+#endif
 	}
 }
 
@@ -996,6 +1174,13 @@ int CNPC_Houndeye::TranslateSchedule( int scheduleType )
 	{
 	case SCHED_IDLE_STAND:
 		{
+#ifdef HOE_DLL
+			if ( IsInSquad() && !GetSquad()->IsLeader( this ) && !m_fAsleep &&
+				 ( m_flTimeStartIdle < gpGlobals->curtime - random->RandomInt(15,25) ) )
+			{
+				return SCHED_HOUND_SLEEP;
+			}
+#endif
 			return BaseClass::TranslateSchedule( scheduleType );
 		}
 	case SCHED_RANGE_ATTACK1:
@@ -1041,6 +1226,35 @@ bool CNPC_Houndeye::IsAnyoneInSquadAttacking( void )
 //=========================================================
 int CNPC_Houndeye::SelectSchedule( void )
 {
+#ifdef HOE_DLL
+	if ( m_fAsleep )
+	{
+		// Check interrupts to the SCHED_HOUND_SLEEP to see how to react
+		if ( HasCondition( COND_NEW_ENEMY ) ||
+			 HasCondition( COND_LIGHT_DAMAGE ) ||
+			 HasCondition( COND_HEAVY_DAMAGE ) )
+		{
+			return SCHED_HOUND_WAKE_URGENT;
+		}
+		else if ( HasCondition( COND_HEAR_COMBAT ) ||
+			 HasCondition( COND_HEAR_PLAYER ) ||
+			 HasCondition( COND_HEAR_WORLD ) )
+		{
+#define HOUNDEYE_SOUND_STARTLE_VOLUME	128 // how loud a sound has to be to badly scare a sleeping houndeye
+			CSound *pSound = GetBestSound();
+			if ( pSound &&
+				 pSound->GetSoundOrigin().DistToSqr( EarPosition() ) < HOUNDEYE_SOUND_STARTLE_VOLUME * HOUNDEYE_SOUND_STARTLE_VOLUME )
+			{
+				return SCHED_HOUND_WAKE_URGENT;
+			}
+		}
+		else
+		{
+			return SCHED_HOUND_WAKE_LAZY;
+		}
+	}
+#endif
+
 	switch	( m_NPCState )
 	{
 	case NPC_STATE_IDLE:
@@ -1197,6 +1411,290 @@ bool CNPC_Houndeye::HandleInteraction(int interactionType, void *data, CBaseComb
 // Schedules
 //
 //-----------------------------------------------------------------------------
+
+#ifdef HOE_DLL
+
+AI_BEGIN_CUSTOM_NPC( npc_houndeye, CNPC_Houndeye )
+
+	DECLARE_TASK( TASK_HOUND_CLOSE_EYE )
+	DECLARE_TASK( TASK_HOUND_OPEN_EYE )
+	DECLARE_TASK( TASK_HOUND_THREAT_DISPLAY )
+	DECLARE_TASK( TASK_HOUND_FALL_ASLEEP )
+	DECLARE_TASK( TASK_HOUND_WAKE_UP )
+	DECLARE_TASK( TASK_HOUND_HOP_BACK )
+
+	DECLARE_TASK( TASK_HOUND_GET_PATH_TO_CIRCLE )
+	DECLARE_TASK( TASK_HOUND_REVERSE_STRAFE_DIR )
+	
+	DECLARE_CONDITION( COND_HOUND_GROUP_ATTACK )
+	DECLARE_CONDITION( COND_HOUND_GROUP_RETREAT )
+	DECLARE_CONDITION( COND_HOUND_GROUP_RALLEY )
+	DECLARE_CONDITION( COND_HOUND_ENEMY_DISTANT )
+
+	DECLARE_ACTIVITY( ACT_HOUND_GUARD )
+
+	DECLARE_INTERACTION( g_interactionHoundeyeGroupAttack )
+	DECLARE_INTERACTION( g_interactionHoundeyeGroupRetreat )
+	DECLARE_INTERACTION( g_interactionHoundeyeGroupRalley )
+
+	//=========================================================
+	// SCHED_HOUND_ATTACK_STRAFE
+	//
+	//  Run a cirle around my enemy
+	//=========================================================
+	DEFINE_SCHEDULE 
+	(
+		SCHED_HOUND_ATTACK_STRAFE  ,
+
+		"	Tasks "
+		"		TASK_SET_FAIL_SCHEDULE			SCHEDULE:SCHED_HOUND_ATTACK_STRAFE_REVERSE"
+		"		TASK_HOUND_GET_PATH_TO_CIRCLE	0"
+		"		TASK_RUN_PATH					0"
+		"		TASK_WAIT_FOR_MOVEMENT			0"
+		""
+		"	Interrupts "
+		"		COND_WEAPON_SIGHT_OCCLUDED"
+		"		COND_NEW_ENEMY"
+		"		COND_ENEMY_DEAD"
+		"		COND_HEAVY_DAMAGE"
+		"		COND_CAN_RANGE_ATTACK1"
+		"		COND_HOUND_GROUP_ATTACK"
+		"		COND_HOUND_GROUP_RETREAT"
+	)
+
+	//=========================================================
+	// SCHED_HOUND_ATTACK_STRAFE_REVERSE
+	//
+	//  Run a cirle around my enemy
+	//=========================================================
+	DEFINE_SCHEDULE 
+	(
+		SCHED_HOUND_ATTACK_STRAFE_REVERSE  ,
+
+		"	Tasks "
+		"		TASK_SET_FAIL_SCHEDULE			SCHEDULE:SCHED_HOUND_CHASE_ENEMY"
+		"		TASK_HOUND_REVERSE_STRAFE_DIR	0"
+		"		TASK_HOUND_GET_PATH_TO_CIRCLE	0"
+		"		TASK_RUN_PATH					0"
+		"		TASK_WAIT_FOR_MOVEMENT			0"
+		""
+		"	Interrupts "
+		"		COND_WEAPON_SIGHT_OCCLUDED"
+		"		COND_NEW_ENEMY"
+		"		COND_ENEMY_DEAD"
+		"		COND_HEAVY_DAMAGE"
+		"		COND_CAN_RANGE_ATTACK1"
+		"		COND_HOUND_GROUP_ATTACK"
+		"		COND_HOUND_GROUP_RETREAT"
+	)
+
+	//========================================================
+	// SCHED_HOUND_CHASE_ENEMY
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_CHASE_ENEMY,
+
+		"	Tasks"
+		"		TASK_SET_TOLERANCE_DISTANCE		30	 "
+		"		TASK_SET_FAIL_SCHEDULE			SCHEDULE:SCHED_CHASE_ENEMY_FAILED"
+		"		TASK_GET_PATH_TO_ENEMY			0"
+		"		TASK_RUN_PATH					0"
+		"		TASK_WAIT_FOR_MOVEMENT			0"
+		""
+		"	Interrupts"
+		"		COND_NEW_ENEMY"
+		"		COND_ENEMY_DEAD"
+		"		COND_CAN_RANGE_ATTACK1"
+		"		COND_HOUND_GROUP_ATTACK"
+		"		COND_HOUND_GROUP_RETREAT"
+	)
+
+	//=========================================================
+	// SCHED_HOUND_GROUP_ATTACK
+	//
+	//  Face enemy, pause, then attack
+	//=========================================================
+	DEFINE_SCHEDULE 
+	(
+		SCHED_HOUND_GROUP_ATTACK  ,
+
+		"	Tasks "
+		"		TASK_STOP_MOVING			0"
+		"		TASK_FACE_ENEMY				0"
+		"		TASK_SET_ACTIVITY			ACTIVITY:ACT_IDLE_ANGRY"
+		"		TASK_SPEAK_SENTENCE			0"
+		"		TASK_WAIT					1"
+		"		TASK_SET_SCHEDULE			SCHEDULE:SCHED_HOUND_RANGE_ATTACK1"
+		""
+		"	Interrupts "
+		"		COND_NEW_ENEMY"
+		"		COND_ENEMY_DEAD"
+		"		COND_HEAVY_DAMAGE"
+	)	
+		
+	//=========================================================
+	// > SCHED_HOUND_GROUP_RETREAT
+	//
+	//		Take cover from enemy! 
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_GROUP_RETREAT,
+
+		"	Tasks"
+		"		TASK_SET_FAIL_SCHEDULE			SCHEDULE:SCHED_HOUND_ATTACK_STRAFE"
+		"		TASK_STOP_MOVING				0"
+		"		TASK_WAIT						0.2"
+		"		TASK_SET_TOLERANCE_DISTANCE		24"
+		"		TASK_FIND_COVER_FROM_ENEMY		0"
+		"		TASK_RUN_PATH					0"
+		"		TASK_WAIT_FOR_MOVEMENT			0"
+		"		TASK_REMEMBER					MEMORY:INCOVER"
+		"		TASK_FACE_ENEMY					0"
+		"		TASK_SET_ACTIVITY				ACTIVITY:ACT_IDLE"	// Translated to cover
+		"		TASK_SET_SCHEDULE				SCHEDULE:SCHED_HOUND_COVER_WAIT"
+		""
+		"	Interrupts"
+		"		COND_NEW_ENEMY"
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_GROUP_RALLEY
+	//
+	//		Run to rally hound! 
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_GROUP_RALLEY,
+
+		"	Tasks"
+		"		TASK_SET_TOLERANCE_DISTANCE		30"
+		"		TASK_SET_FAIL_SCHEDULE			SCHEDULE:SCHED_HOUND_ATTACK_STRAFE"
+		"		TASK_GET_PATH_TO_TARGET			0"
+		"		TASK_RUN_PATH					0"
+		"		TASK_WAIT_FOR_MOVEMENT			0"
+		""
+		"	Interrupts"
+		"		COND_NEW_ENEMY"
+		"		COND_ENEMY_DEAD"
+		"		COND_HEAVY_DAMAGE"
+		"		COND_HOUND_GROUP_ATTACK"
+		"		COND_HOUND_GROUP_RETREAT"
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_COVER_WAIT
+	//
+	//		Wait in cover till enemy see's me or I take damage
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_COVER_WAIT,
+
+		"	Tasks"
+		"		TASK_WAIT						2"
+		""
+		"	Interrupts"
+		"		COND_SEE_ENEMY"
+		"		COND_LIGHT_DAMAGE"
+	)			
+
+	//=========================================================
+	// > SCHED_HOUND_RANGE_ATTACK1
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_RANGE_ATTACK1,
+
+		"	Tasks"
+		"		 TASK_STOP_MOVING			0"
+		"		 TASK_SET_ACTIVITY			ACTIVITY:ACT_IDLE_ANGRY"
+		"		 TASK_FACE_IDEAL			0"
+		"		 TASK_RANGE_ATTACK1			0"
+		""
+		"	Interrupts"
+		//"		COND_LIGHT_DAMAGE"	// don't interupt on small damage
+		"		COND_HEAVY_DAMAGE"
+		"		COND_HOUND_ENEMY_DISTANT" // HOE_DLL
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_HOP_RETREAT
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_HOP_RETREAT,
+
+		"	Tasks"
+		"		 TASK_STOP_MOVING				0"
+		"		 TASK_HOUND_HOP_BACK			0"
+		"		 TASK_SET_SCHEDULE				SCHEDULE:SCHED_TAKE_COVER_FROM_ENEMY"
+		""
+		"	Interrupts"
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_SLEEP
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_SLEEP,
+
+		"	Tasks"
+		"		TASK_STOP_MOVING			0"
+		"		TASK_SET_ACTIVITY			ACTIVITY:ACT_IDLE"
+		"		TASK_WAIT_RANDOM			5"
+		"		TASK_PLAY_SEQUENCE			ACTIVITY:ACT_CROUCH"
+		"		TASK_SET_ACTIVITY			ACTIVITY:ACT_CROUCHIDLE"
+		"		TASK_HOUND_FALL_ASLEEP		0"
+		"		TASK_WAIT_RANDOM			25"
+		"		TASK_HOUND_CLOSE_EYE		0"
+		""
+		"	Interrupts"
+		"		COND_LIGHT_DAMAGE"
+		"		COND_HEAVY_DAMAGE"
+		"		COND_NEW_ENEMY"
+		"		COND_HEAR_COMBAT"
+		"		COND_HEAR_PLAYER"
+		"		COND_HEAR_WORLD"
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_WAKE_URGENT
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_WAKE_URGENT,
+
+		"	Tasks"
+		"		TASK_HOUND_OPEN_EYE			0"
+		"		TASK_PLAY_SEQUENCE			ACTIVITY:ACT_HOP"
+		"		TASK_FACE_IDEAL				0"
+		"		TASK_HOUND_WAKE_UP			0"
+		""
+		"	Interrupts"
+	)
+
+	//=========================================================
+	// > SCHED_HOUND_WAKE_URGENT
+	//=========================================================
+	DEFINE_SCHEDULE
+	(
+		SCHED_HOUND_WAKE_LAZY,
+
+		"	Tasks"
+		"		TASK_HOUND_OPEN_EYE			0"
+		"		TASK_WAIT_RANDOM			2.5"
+		"		TASK_PLAY_SEQUENCE			ACTIVITY:ACT_STAND"
+		"		TASK_HOUND_WAKE_UP			0"
+		""
+		"	Interrupts"
+	)
+
+AI_END_CUSTOM_NPC()
+
+#else // HOE_DLL
 
 //=========================================================
 // SCHED_HOUND_ATTACK_STRAFE
@@ -1393,3 +1891,5 @@ AI_DEFINE_SCHEDULE
 	""
 	"	Interrupts"
 );
+
+#endif // HOE_DLL

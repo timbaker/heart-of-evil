@@ -35,6 +35,13 @@ enum TrackOrientationType_t
 	TrackOrientation_FacePathAngles,
 };
 
+#ifdef HOE_DLL
+enum TrackConnectionType_t
+{
+	TrackConnection_Line = 0,
+	TrackConnection_Spline,
+};
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Paths!
@@ -89,6 +96,27 @@ public:
 	void		Visit();
 	bool		HasBeenVisited() const;
 
+#ifdef HOE_DLL
+#define HOE_TRAIN_PITCH
+	float m_flPitch;
+#endif
+#ifdef HOE_DLL
+#define HOE_TRACK_SPLINE
+	enum { NUM_SPLINE_SEGMENTS = 10 };
+
+	TrackConnectionType_t GetConnectionType();
+	void GetSplinePoints( Vector &p1, Vector &p2, Vector &p3, Vector &p4 );
+	void GetSplineSegments( Vector endPoints[NUM_SPLINE_SEGMENTS+1] );
+	float GetSplineLength( void );
+	int CalcClosestSplineSegment( const Vector &testPoint );
+	float CalcDistanceAlongSpline( const Vector &testPoint, Vector *pVecClosest = 0 );
+	void AdvanceAlongSpline( const Vector &vStartPoint, float flDist, Vector &vOut );
+	void GetSplineTangent( const Vector &testPoint, Vector &vTangent, Vector *vTangentNext = 0 );
+
+	float m_flSplineTime; // gpGlobals->curtime we filled in m_vecSegments
+	Vector m_vecSplineSegments[NUM_SPLINE_SEGMENTS+1];
+#endif // HOE_DLL
+
 	bool		IsUpHill(){ return ( FBitSet( m_spawnflags, SF_PATH_UPHILL ) ) ? true : false; }
 	bool		IsDownHill(){ return ( FBitSet( m_spawnflags, SF_PATH_DOWNHILL ) ) ? true : false; }
 	int	GetHillType()
@@ -133,6 +161,9 @@ private:
 	string_t	m_altName;
     int			m_nIterVal;
 	TrackOrientationType_t m_eOrientationType;
+#ifdef HOE_TRACK_SPLINE
+	TrackConnectionType_t m_eConnectionType; // "connectiontype" keyvalue
+#endif
 
 	COutputEvent m_OnPass;
 	COutputEvent m_OnTeleport;

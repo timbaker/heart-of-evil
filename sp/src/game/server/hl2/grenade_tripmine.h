@@ -11,19 +11,40 @@
 #pragma once
 #endif
 
+#ifdef HOE_DLL
+#ifdef CLIENT_DLL
+#include "c_basecombatcharacter.h"
+#else
+#include "basecombatcharacter.h"
+#endif
+#else
 #include "basegrenade_shared.h"
+#endif
 
 class CBeam;
 
+#ifdef HOE_DLL
+#define BASEGRENADE_EXPLOSION_VOLUME	1024
 
+class CTripmineGrenade : public CBaseCombatCharacter
+{
+public:
+	DECLARE_CLASS( CTripmineGrenade, CBaseCombatCharacter );
+#else
 class CTripmineGrenade : public CBaseGrenade
 {
 public:
 	DECLARE_CLASS( CTripmineGrenade, CBaseGrenade );
+#endif
 
 	CTripmineGrenade();
 	void Spawn( void );
 	void Precache( void );
+
+#ifdef HOE_DLL
+	virtual void		Explode( trace_t *pTrace, int bitsDamageType );
+	virtual Vector		GetBlastForce() { return vec3_origin; }
+#endif
 
 	int OnTakeDamage_Alive( const CTakeDamageInfo &info );
 	
@@ -48,6 +69,12 @@ private:
 	CBeam		*m_pBeam;
 	Vector		m_posOwner;
 	Vector		m_angleOwner;
+
+#ifdef HOE_DLL
+	CNetworkVar( bool, m_bIsLive );					// Is this grenade live, or can it be picked up?
+	CNetworkVar( float, m_DmgRadius );				// How far do I do damage?
+	CNetworkVar( float, m_flDamage );		// Damage to inflict.
+#endif
 
 	DECLARE_DATADESC();
 };

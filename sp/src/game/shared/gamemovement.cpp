@@ -14,6 +14,13 @@
 #include "decals.h"
 #include "coordsize.h"
 #include "rumble_shared.h"
+#ifdef HOE_THIRDPERSON
+#ifdef CLIENT_DLL
+#include "c_basehlplayer.h"
+#else
+#include "hl2_player.h"
+#endif
+#endif // HOE_THIRDPERSON
 
 #if defined(HL2_DLL) || defined(HL2_CLIENT_DLL)
 	#include "hl_movedata.h"
@@ -2416,6 +2423,9 @@ bool CGameMovement::CheckJumpButton( void )
 	player->PlayStepSound( (Vector &)mv->GetAbsOrigin(), player->m_pSurfaceData, 1.0, true );
 	
 	MoveHelper()->PlayerSetAnimation( PLAYER_JUMP );
+#ifdef HOE_THIRDPERSON
+	ToHL2Player( player )->DoAnimationEvent( PLAYERANIMEVENT_JUMP );
+#endif // HOE_THIRDPERSON
 
 	float flGroundFactor = 1.0f;
 	if (player->m_pSurfaceData)
@@ -3513,7 +3523,13 @@ bool CGameMovement::CheckWater( void )
 	// Pick a spot just above the players feet.
 	point[0] = mv->GetAbsOrigin()[0] + (vPlayerMins[0] + vPlayerMaxs[0]) * 0.5;
 	point[1] = mv->GetAbsOrigin()[1] + (vPlayerMins[1] + vPlayerMaxs[1]) * 0.5;
+#ifdef HOE_THIRDPERSON
+	// Other entities use exactly the bottom of the hull.
+	// By raising up 1 point footstep splashes in shallow puddles don't play.
+	point[2] = mv->GetAbsOrigin()[2] + GetPlayerMins()[2] + 0.5;
+#else
 	point[2] = mv->GetAbsOrigin()[2] + vPlayerMins[2] + 1;
+#endif
 	
 	// Assume that we are not in water at all.
 	player->SetWaterLevel( WL_NotInWater );

@@ -142,7 +142,11 @@ bool RagdollManager_SaveImportant( CAI_BaseNPC *pNPC )
 
 	if ( pEnt->m_bSaveImportant )
 	{
+#ifdef HOE_DLL
+		if ( pNPC->ClassifyPlayerAlly() || pNPC->ClassifyPlayerAllyVital() )
+#else
 		if ( pNPC->Classify() == CLASS_PLAYER_ALLY || pNPC->Classify() == CLASS_PLAYER_ALLY_VITAL )
+#endif
 		{
 			return true;
 		}

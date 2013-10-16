@@ -53,6 +53,10 @@ public:
 
 	virtual void	ItemHolsterFrame( void );
 
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+	virtual bool CanToggleIronSights( void );
+#endif // HOE_IRONSIGHTS
+
 	int				m_iPrimaryAttacks;		// # of primary attacks performed with this weapon
 	int				m_iSecondaryAttacks;	// # of secondary attacks performed with this weapon
 

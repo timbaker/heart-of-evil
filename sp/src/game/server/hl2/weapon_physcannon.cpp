@@ -1812,7 +1812,11 @@ void CWeaponPhysCannon::Physgun_OnPhysGunPickup( CBaseEntity *pEntity, CBasePlay
 
 		for ( int i = 0; i < nAIs; i++ )
 		{
+#ifdef HOE_DLL
+			if ( ppAIs[ i ]->ClassifyPlayerAllyVital() )
+#else
 			if( ppAIs[ i ]->Classify() == CLASS_PLAYER_ALLY_VITAL )
+#endif
 			{
 				ppAIs[ i ]->DispatchInteraction( g_interactionPlayerPuntedHeavyObject, pEntity, pOwner );
 			}
@@ -2219,7 +2223,11 @@ void CWeaponPhysCannon::PrimaryAttack( void )
 		if( GetOwner()->IsPlayer() && !IsMegaPhysCannon() )
 		{
 			// Don't let the player zap any NPC's except regular antlions and headcrabs.
+#ifdef HOE_DLL
+			if ( pEntity->IsNPC() && pEntity->Classify() != CLASS_SPX_BABY && pEntity->Classify() != CLASS_KOPHYAEGER )
+#else
 			if( pEntity->IsNPC() && pEntity->Classify() != CLASS_HEADCRAB && !FClassnameIs(pEntity, "npc_antlion") )
+#endif
 			{
 				DryFire();
 				return;

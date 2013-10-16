@@ -601,3 +601,291 @@ void CSplashParticle::SimulateParticles( CParticleSimulateIterator *pIterator )
 		pParticle = (SimpleParticle*)pIterator->GetNext();
 	}
 }
+
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+// Same as gunshotsplash but different/quiter sound
+//-----------------------------------------------------------------------------
+void FX_FootstepSplash( const Vector &origin, const Vector &normal, float scale )
+{
+	VPROF_BUDGET( "FX_GunshotSplash", VPROF_BUDGETGROUP_PARTICLE_RENDERING );
+	
+	if ( cl_show_splashes.GetBool() == false )
+		return;
+
+	Vector	color;
+	float	luminosity;
+	
+	// Get our lighting information
+	FX_GetSplashLighting( origin + ( normal * scale ), &color, &luminosity );
+
+	float flScale = scale / 8.0f;
+
+	if ( flScale > 4.0f )
+	{
+		flScale = 4.0f;
+	}
+
+	// Setup our trail emitter
+	CSmartPtr<CTrailParticles> sparkEmitter = CTrailParticles::Create( "splash" );
+
+	if ( !sparkEmitter )
+		return;
+
+	sparkEmitter->SetSortOrigin( origin );
+	sparkEmitter->m_ParticleCollision.SetGravity( 800.0f );
+	sparkEmitter->SetFlag( bitsPARTICLE_TRAIL_VELOCITY_DAMPEN );
+	sparkEmitter->SetVelocityDampen( 2.0f );
+	sparkEmitter->GetBinding().SetBBox( origin - Vector( 32, 32, 32 ), origin + Vector( 32, 32, 32 ) );
+
+	PMaterialHandle	hMaterial = ParticleMgr()->GetPMaterial( "effects/splash2" );
+
+	TrailParticle	*tParticle;
+
+	Vector	offDir;
+	Vector	offset;
+	float	colorRamp;
+
+	//Dump out drops
+	for ( int i = 0; i < 16; i++ )
+	{
+		offset = origin;
+		offset[0] += random->RandomFloat( -8.0f, 8.0f ) * flScale;
+		offset[1] += random->RandomFloat( -8.0f, 8.0f ) * flScale;
+
+		tParticle = (TrailParticle *) sparkEmitter->AddParticle( sizeof(TrailParticle), hMaterial, offset );
+
+		if ( tParticle == NULL )
+			break;
+
+		tParticle->m_flLifetime	= 0.0f;
+		tParticle->m_flDieTime	= random->RandomFloat( 0.25f, 0.5f );
+
+		offDir = normal + RandomVector( -0.8f, 0.8f );
+
+		tParticle->m_vecVelocity = offDir * random->RandomFloat( SPLASH_MIN_SPEED * flScale * 3.0f, SPLASH_MAX_SPEED * flScale * 3.0f );
+		tParticle->m_vecVelocity[2] += random->RandomFloat( 32.0f, 64.0f ) * flScale;
+
+		tParticle->m_flWidth		= random->RandomFloat( 1.0f, 3.0f );
+		tParticle->m_flLength		= random->RandomFloat( 0.025f, 0.05f );
+
+		colorRamp = random->RandomFloat( 0.75f, 1.25f );
+
+		tParticle->m_color.r = min( 1.0f, color[0] * colorRamp ) * 255;
+		tParticle->m_color.g = min( 1.0f, color[1] * colorRamp ) * 255;
+		tParticle->m_color.b = min( 1.0f, color[2] * colorRamp ) * 255;
+		tParticle->m_color.a = luminosity * 255;
+	}
+
+	// Setup the particle emitter
+	CSmartPtr<CSplashParticle> pSimple = CSplashParticle::Create( "splish" );
+	pSimple->SetSortOrigin( origin );
+	pSimple->SetClipHeight( origin.z );
+	pSimple->SetParticleCullRadius( scale * 2.0f );
+	pSimple->GetBinding().SetBBox( origin - Vector( 32, 32, 32 ), origin + Vector( 32, 32, 32 ) );
+
+	SimpleParticle	*pParticle;
+
+	//Main gout
+	for ( int i = 0; i < 8; i++ )
+	{
+		pParticle = (SimpleParticle *) pSimple->AddParticle( sizeof( SimpleParticle ), hMaterial, origin );
+
+		if ( pParticle == NULL )
+			break;
+
+		pParticle->m_flLifetime = 0.0f;
+		pParticle->m_flDieTime	= 2.0f;	//NOTENOTE: We use a clip plane to realistically control our lifespan
+
+		pParticle->m_vecVelocity.Random( -0.2f, 0.2f );
+		pParticle->m_vecVelocity += ( normal * random->RandomFloat( 4.0f, 6.0f ) );
+		
+		VectorNormalize( pParticle->m_vecVelocity );
+
+		pParticle->m_vecVelocity *= 50 * flScale * (8-i);
+		
+		colorRamp = random->RandomFloat( 0.75f, 1.25f );
+
+		pParticle->m_uchColor[0]	= min( 1.0f, color[0] * colorRamp ) * 255.0f;
+		pParticle->m_uchColor[1]	= min( 1.0f, color[1] * colorRamp ) * 255.0f;
+		pParticle->m_uchColor[2]	= min( 1.0f, color[2] * colorRamp ) * 255.0f;
+		
+		pParticle->m_uchStartSize	= 24 * flScale * RemapValClamped( i, 7, 0, 1, 0.5f );
+		pParticle->m_uchEndSize		= min( 255, pParticle->m_uchStartSize * 2 );
+		
+		pParticle->m_uchStartAlpha	= RemapValClamped( i, 7, 0, 255, 32 ) * luminosity;
+		pParticle->m_uchEndAlpha	= 0;
+		
+		pParticle->m_flRoll			= random->RandomInt( 0, 360 );
+		pParticle->m_flRollDelta	= random->RandomFloat( -4.0f, 4.0f );
+	}
+
+	// Do a ripple
+	FX_WaterRipple( origin, flScale, &color, 1.5f, luminosity );
+
+	//Play a sound
+	CLocalPlayerFilter filter;
+
+	EmitSound_t ep;
+	ep.m_nChannel = CHAN_VOICE;
+	ep.m_pSoundName = "Water.BulletImpact"; // "Physics.WaterSplash";
+	ep.m_flVolume = 0.4f;
+	ep.m_SoundLevel = SNDLVL_NORM;
+	ep.m_pOrigin = &origin;
+
+
+	C_BaseEntity::EmitSound( filter, SOUND_FROM_WORLD, ep );
+}
+
+//-----------------------------------------------------------------------------
+static void FootstepSplashCallback( const CEffectData &data )
+{
+	if ( data.m_fFlags & FX_WATER_IN_SLIME )
+	{
+		FX_GunshotSlimeSplash( data.m_vOrigin, Vector(0,0,1), data.m_flScale );
+	}
+	else
+	{
+		FX_FootstepSplash( data.m_vOrigin, Vector(0,0,1), data.m_flScale );
+	}
+}
+
+DECLARE_CLIENT_EFFECT( "footstepsplash", FootstepSplashCallback );
+
+//-----------------------------------------------------------------------------
+class FX_ChumtoadWake : public CClientSideEffect
+{
+public:
+	FX_ChumtoadWake(IMaterial *pMaterial) : CClientSideEffect("FX_ChumtoadWake")
+	{
+		m_pMaterial = pMaterial;
+		if (m_pMaterial)
+			m_pMaterial->IncrementReferenceCount();
+	}
+
+	~FX_ChumtoadWake()
+	{
+		if (m_pMaterial)
+			m_pMaterial->DecrementReferenceCount();		
+	}
+
+	virtual void Draw( double frametime )
+	{
+		Vector startPos = m_startPos;
+		Vector wakeDir = m_wakeDir;
+		float wakeLength = m_wakeLength;
+		float speed = m_speed;
+
+		float minSpeed = 150*0.2;
+		float maxSpeed = 150;
+
+#define	WAKE_STEPS	6
+
+		Vector	wakeStep = wakeDir * ( wakeLength / (float) WAKE_STEPS );
+		Vector	origin;
+		float	scale;
+
+		CMatRenderContextPtr pRenderContext( materials );
+		IMesh* pMesh = pRenderContext->GetDynamicMesh( 0, 0, 0, m_pMaterial );
+
+		CMeshBuilder meshBuilder;
+		meshBuilder.Begin( pMesh, MATERIAL_QUADS, WAKE_STEPS );
+
+		for ( int i = 0; i < WAKE_STEPS; i++ )
+		{
+			origin = startPos + ( wakeStep * i );
+			origin[0] += random->RandomFloat( -4.0f, 4.0f );
+			origin[1] += random->RandomFloat( -4.0f, 4.0f );
+			origin[2] = m_nExactWaterLevel + 2.0f;
+
+			float scaleRange = RemapVal( i, 0, WAKE_STEPS-1, 16, 32 );
+			scale = scaleRange + ( 8.0f * sin( gpGlobals->curtime * 5 * i ) );
+			
+			float alpha = RemapValClamped( speed, minSpeed, maxSpeed, 0.05f, 0.25f );
+			float color[4] = { 1.0f, 1.0f, 1.0f, alpha };
+			
+			// Needs to be time based so it'll freeze when the game is frozen
+			float yaw = random->RandomFloat( 0, 360 );
+
+			Vector rRight = ( Vector(1,0,0) * cos( DEG2RAD( yaw ) ) ) - ( Vector(0,1,0) * sin( DEG2RAD( yaw ) ) );
+			Vector rUp = ( Vector(1,0,0) * cos( DEG2RAD( yaw+90.0f ) ) ) - ( Vector(0,1,0) * sin( DEG2RAD( yaw+90.0f ) ) );
+
+			Vector point;
+			meshBuilder.Color4fv (color);
+			meshBuilder.TexCoord2f (0, 0, 1);
+			VectorMA (origin, -scale, rRight, point);
+			VectorMA (point, -scale, rUp, point);
+			meshBuilder.Position3fv (point.Base());
+			meshBuilder.AdvanceVertex();
+
+			meshBuilder.Color4fv (color);
+			meshBuilder.TexCoord2f (0, 0, 0);
+			VectorMA (origin, scale, rRight, point);
+			VectorMA (point, -scale, rUp, point);
+			meshBuilder.Position3fv (point.Base());
+			meshBuilder.AdvanceVertex();
+
+			meshBuilder.Color4fv (color);
+			meshBuilder.TexCoord2f (0, 1, 0);
+			VectorMA (origin, scale, rRight, point);
+			VectorMA (point, scale, rUp, point);
+			meshBuilder.Position3fv (point.Base());
+			meshBuilder.AdvanceVertex();
+
+			meshBuilder.Color4fv (color);
+			meshBuilder.TexCoord2f (0, 1, 1);
+			VectorMA (origin, -scale, rRight, point);
+			VectorMA (point, scale, rUp, point);
+			meshBuilder.Position3fv (point.Base());
+			meshBuilder.AdvanceVertex();
+		}
+
+		meshBuilder.End();
+		pMesh->Draw();
+
+		// Decrease lifetime.
+		m_Life -= frametime;
+	}
+
+	bool IsActive( void )
+	{
+		return m_Life > 0.0;
+	}
+
+public:
+	Vector		m_startPos;
+	Vector		m_wakeDir;
+	float		m_wakeLength;
+	float		m_speed;
+	float		m_Life;
+	float		m_nExactWaterLevel;
+	IMaterial	*m_pMaterial;
+};
+
+//-----------------------------------------------------------------------------
+static void ChumtoadWakeCallback( const CEffectData &data )
+{
+	trace_t tr;
+	UTIL_TraceLine( data.m_vOrigin + Vector(0,0,8), data.m_vOrigin + Vector(0,0,-64), MASK_WATER, NULL, COLLISION_GROUP_NONE, &tr );
+	if ( tr.fraction == 1.0f )
+		return;
+
+
+	IMaterial *mat = materials->FindMaterial( "effects/splashwake1", TEXTURE_GROUP_CLIENT_EFFECTS );
+
+	FX_ChumtoadWake *pEffect = new FX_ChumtoadWake(mat);
+
+	pEffect->m_startPos = data.m_vOrigin;
+	pEffect->m_wakeDir = data.m_vNormal;
+	pEffect->m_wakeLength = data.m_flRadius;
+	pEffect->m_speed = data.m_flMagnitude;
+	pEffect->m_nExactWaterLevel = tr.endpos.z;
+	pEffect->m_Life = 0.1;
+
+	clienteffects->AddEffect( pEffect );
+}
+
+DECLARE_CLIENT_EFFECT( "chumtoadwake", ChumtoadWakeCallback );
+
+#endif // HOE_DLL

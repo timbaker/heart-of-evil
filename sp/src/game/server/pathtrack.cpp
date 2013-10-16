@@ -26,7 +26,13 @@ BEGIN_DATADESC( CPathTrack )
 	DEFINE_KEYFIELD( m_altName,		FIELD_STRING, "altpath" ),
 	DEFINE_KEYFIELD( m_eOrientationType, FIELD_INTEGER, "orientationtype" ),
 //	DEFINE_FIELD( m_nIterVal,		FIELD_INTEGER ),
-	
+#ifdef HOE_TRAIN_PITCH
+	DEFINE_KEYFIELD( m_flPitch,		FIELD_FLOAT, "pitch" ),
+#endif
+#ifdef HOE_TRACK_SPLINE
+	DEFINE_KEYFIELD( m_eConnectionType,	FIELD_INTEGER, "connectiontype" ),
+#endif
+
 	DEFINE_INPUTFUNC( FIELD_VOID, "InPass", InputPass ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "InTeleport",  InputTeleport ),
 	
@@ -312,6 +318,18 @@ void CPathTrack::DrawDebugGeometryOverlays()
 		{
 			NDebugOverlay::Line(GetAbsOrigin(),m_pnext->GetAbsOrigin(),255,100,100,true,0.0);
 		}
+#ifdef HOE_TRACK_SPLINE
+		if ( GetConnectionType() == TrackConnection_Spline )
+		{
+			Vector endPoints[11];
+			GetSplineSegments( endPoints );
+			const int iDivs = 10;
+			for ( int i = 1; i <= iDivs; i++ )
+			{
+				NDebugOverlay::Line(endPoints[i-1],endPoints[i],100,100,255,true,0.0);
+			}
+		}
+#endif // HOE_DLL
 	}
 	BaseClass::DrawDebugGeometryOverlays();
 }
@@ -420,8 +438,22 @@ CPathTrack *CPathTrack::LookAhead( Vector &origin, float dist, int move, CPathTr
 		}
 
 		// The next path track is valid. How far are we from it?
+#ifdef HOE_TRACK_SPLINE
+		Vector dir;
+		float length;
+		if ( pcurrent->GetConnectionType() == TrackConnection_Spline )
+		{
+			length = pcurrent->GetSplineLength() - pcurrent->CalcDistanceAlongSpline( currentPos );
+		}
+		else
+		{
+			dir = pcurrent->GetNextInDir( bForward )->GetLocalOrigin() - currentPos;
+			length = dir.Length();
+		}
+#else
 		Vector dir = pcurrent->GetNextInDir( bForward )->GetLocalOrigin() - currentPos;
 		float length = dir.Length();
+#endif
 
 		// If we are at the next node and there isn't one beyond it, return the next node.
 		if ( !length  && !ValidPath( pcurrent->GetNextInDir( bForward )->GetNextInDir( bForward ), move ) )
@@ -443,7 +475,18 @@ CPathTrack *CPathTrack::LookAhead( Vector &origin, float dist, int move, CPathTr
 		// If we don't hit the next path track within the distance remaining, we're done.
 		if ( length > dist )
 		{
+#ifdef HOE_TRACK_SPLINE
+			if ( pcurrent->GetConnectionType() == TrackConnection_Spline )
+			{
+				pcurrent->AdvanceAlongSpline( currentPos, dist, origin );
+			}
+			else
+			{
+				origin = currentPos + ( dir * ( dist / length ) );
+			}
+#else
 			origin = currentPos + ( dir * ( dist / length ) );
+#endif
 			if ( pNextNext )
 			{
 				*pNextNext = pcurrent->GetNextInDir( bForward );
@@ -584,3 +627,211 @@ void CPathTrack::InputTeleport( inputdata_t &inputdata )
 {
 	m_OnTeleport.FireOutput( inputdata.pActivator, this );
 }
+
+#ifdef HOE_TRACK_SPLINE
+
+
+//-----------------------------------------------------------------------------
+TrackConnectionType_t CPathTrack::GetConnectionType()
+{
+	return m_eConnectionType;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+void CPathTrack::GetSplinePoints( Vector &p1, Vector &p2, Vector &p3, Vector &p4 )
+{
+	CPathTrack *pPrev = ValidPath( GetPrevious() );
+	CPathTrack *pNext = ValidPath( GetNext() );
+	CPathTrack *pNextNext = pNext ? ValidPath( pNext->GetNext() ) : NULL;
+
+	p1 = p2 = p3 = p4 = GetAbsOrigin();
+	if ( pPrev && (pPrev->GetConnectionType() == TrackConnection_Spline) )
+	{
+		p1 = pPrev->GetAbsOrigin();
+	}
+	if ( pNext )
+	{
+		p3 = p4 = pNext->GetAbsOrigin();
+		if ( pNext->GetConnectionType() == TrackConnection_Spline )
+		{
+			if ( pNextNext )
+				p4 = pNextNext->GetAbsOrigin();
+		}
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+void CPathTrack::GetSplineSegments( Vector endPoints[NUM_SPLINE_SEGMENTS+1] )
+{
+	if ( m_flSplineTime > 0 && gpGlobals->curtime == m_flSplineTime )
+	{
+		memcpy( endPoints, m_vecSplineSegments, sizeof(m_vecSplineSegments) );
+		return;
+	}
+
+	Vector splinePoints[4];
+	GetSplinePoints( splinePoints[0], splinePoints[1], splinePoints[2], splinePoints[3] );
+
+	endPoints[0] = splinePoints[1]; // GetAbsOrigin()
+
+	Vector vecPrev = splinePoints[1];
+	const int iDivs = NUM_SPLINE_SEGMENTS;
+	for ( int i = 1; i <= iDivs; i++ )
+	{
+		Vector vecCurr;
+		float flT = (float)i / (float)iDivs;
+		Catmull_Rom_Spline( splinePoints[0], splinePoints[1], splinePoints[2], splinePoints[3], flT, vecCurr );
+		endPoints[i] = vecCurr;
+//		flSplineLength += (vecCurr - vecPrev).Length();
+		vecPrev = vecCurr;
+	}
+
+	// Fixme: only recalculate if path_tracks move, alt-paths change etc
+	memcpy( m_vecSplineSegments, endPoints, sizeof(m_vecSplineSegments) );
+	m_flSplineTime = gpGlobals->curtime;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+float CPathTrack::GetSplineLength( void )
+{
+	Vector endPoints[NUM_SPLINE_SEGMENTS+1];
+	GetSplineSegments( endPoints );
+
+	float flDist = 0;
+
+	const int iDivs = NUM_SPLINE_SEGMENTS;
+	for ( int i = 1; i <= iDivs; i++ )
+	{
+		flDist += (endPoints[i] - endPoints[i-1]).Length();
+	}
+	return flDist;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+int CPathTrack::CalcClosestSplineSegment( const Vector &testPoint )
+{
+	Vector endPoints[NUM_SPLINE_SEGMENTS+1];
+	GetSplineSegments( endPoints );
+
+	int nClosestSegment = -1;
+	float flClosestDist = 999999999;
+
+	const int iDivs = NUM_SPLINE_SEGMENTS;
+	for ( int i = 1; i <= iDivs; i++ )
+	{
+		Vector vClosest;
+		float dist;
+		dist = CalcDistanceToLineSegment( testPoint, endPoints[i-1], endPoints[i] );
+		if ( dist < flClosestDist )
+		{
+			nClosestSegment = i;
+			flClosestDist = dist;
+		}
+	}
+	return nClosestSegment;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+float CPathTrack::CalcDistanceAlongSpline( const Vector &testPoint, Vector *pVecClosest/* = 0*/ )
+{
+	int segment = CalcClosestSplineSegment( testPoint );
+
+	Vector endPoints[NUM_SPLINE_SEGMENTS+1];
+	GetSplineSegments( endPoints );
+
+	Vector vClosest;
+	CalcClosestPointOnLineSegment( testPoint, endPoints[segment-1], endPoints[segment], vClosest );
+
+	float flDist = 0;
+//	const int iDivs = 10;
+	for ( int i = 1; i < segment; i++ )
+	{
+		flDist += (endPoints[i] - endPoints[i-1]).Length();
+	}
+	flDist += (vClosest-endPoints[segment-1]).Length();
+
+	if ( pVecClosest != NULL )
+		*pVecClosest = vClosest;
+
+	return flDist;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+void CPathTrack::AdvanceAlongSpline( const Vector &vStartPoint, float flDist, Vector &vOut )
+{
+	int segment = CalcClosestSplineSegment( vStartPoint );
+
+	Vector endPoints[NUM_SPLINE_SEGMENTS+1];
+	GetSplineSegments( endPoints );
+
+	Vector vPointOnSegment;
+	CalcClosestPointOnLineSegment( vStartPoint, endPoints[segment-1], endPoints[segment], vPointOnSegment );
+
+	float flDistRemainingInSegment = (endPoints[segment] - vPointOnSegment).Length();
+	Vector vSegDir;
+
+	const int iDivs = NUM_SPLINE_SEGMENTS;
+	while ( flDist > 0 )
+	{
+		if ( flDistRemainingInSegment >= flDist )
+		{
+			vSegDir = endPoints[segment] - endPoints[segment-1];
+			vSegDir.NormalizeInPlace();
+			vOut = vPointOnSegment + flDist * vSegDir;
+			return;
+		}
+		if ( segment == iDivs )
+		{
+			vOut = endPoints[segment];
+			return;
+		}
+		flDist -= flDistRemainingInSegment;
+		segment += 1;
+		flDistRemainingInSegment = (endPoints[segment] - endPoints[segment-1]).Length();
+		vPointOnSegment = endPoints[segment-1];
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+//-----------------------------------------------------------------------------
+void CPathTrack::GetSplineTangent( const Vector &testPoint, Vector &vTangent, Vector *vTangentNext/* = 0 */ )
+{
+	int segment = CalcClosestSplineSegment( testPoint );
+
+	Vector endPoints[NUM_SPLINE_SEGMENTS+1];
+	GetSplineSegments( endPoints );
+
+	vTangent = endPoints[segment] - endPoints[segment-1];
+	vTangent.NormalizeInPlace();
+
+	const int iDivs = NUM_SPLINE_SEGMENTS;
+	if ( vTangentNext != NULL )
+	{
+		// FIXME: handle reverse direction
+		if ( segment < iDivs )
+		{
+			segment++;
+			*vTangentNext = endPoints[segment] - endPoints[segment-1];
+			vTangentNext->NormalizeInPlace();
+		}
+		else
+		{
+			*vTangentNext = vec3_origin;
+		}
+	}
+}
+
+#endif // HOE_TRACK_SPLINE

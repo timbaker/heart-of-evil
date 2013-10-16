@@ -121,6 +121,39 @@ enum Class_T
 	CLASS_HACKED_ROLLERMINE,
 	CLASS_COMBINE_HUNTER,
 
+#ifdef HOE_DLL
+	// NOTE: Update g_RelationshipClassNames[] if this changes
+	CLASS_BARNEY,
+	CLASS_BARNEY_ZOMBIE,
+	CLASS_BULLSQUID,
+	CLASS_CHARLIE,
+	CLASS_CHUMTOAD,
+	CLASS_GORILLA,
+	CLASS_GRUNT_MEDIC,
+	CLASS_GRUNT_MEDIC_FRIEND,
+	CLASS_HOUNDEYE,
+	CLASS_HUEY,
+	CLASS_HUEY_FRIEND,
+	CLASS_HUMAN_GRUNT,
+	CLASS_HUMAN_GRUNT_FRIEND,
+	CLASS_KOPHYAEGER,
+	CLASS_KOPHYAEGER_ADULT,
+	CLASS_KURTZ,
+	CLASS_LEECH,
+	CLASS_MIKEFORCE,
+	CLASS_MIKEFORCE_MEDIC,
+	CLASS_PEASANT,
+	CLASS_ROACH,
+	CLASS_SNARK,
+	CLASS_SOG,
+	CLASS_SPX,
+	CLASS_SPX_FRIEND,
+	CLASS_SPX_BABY,
+	CLASS_SPX_FLYER,
+	CLASS_SUPERZOMBIE,
+	CLASS_SUPERZOMBIE_FRIEND,
+#endif // HOE_DLL
+
 	NUM_AI_CLASSES
 };
 
@@ -881,6 +914,10 @@ public:
 // Classify - returns the type of group (i.e, "houndeye", or "human military" so that NPCs with different classnames
 // still realize that they are teammates. (overridden for NPCs that form groups)
 	virtual Class_T Classify ( void );
+#ifdef HOE_DLL
+	virtual bool	ClassifyPlayerAlly( void );
+	virtual bool	ClassifyPlayerAllyVital( void );
+#endif
 	virtual void	DeathNotice ( CBaseEntity *pVictim ) {}// NPC maker children use this to tell the NPC maker that they have died.
 	virtual bool	ShouldAttractAutoAim( CBaseEntity *pAimingEnt ) { return ((GetFlags() & FL_AIMTARGET) != 0); }
 	virtual float	GetAutoAimRadius();
@@ -1360,6 +1397,20 @@ public:
 		float flVolume, soundlevel_t iSoundlevel, int iFlags = 0, int iPitch = PITCH_NORM,
 		const Vector *pOrigin = NULL, const Vector *pDirection = NULL, bool bUpdatePositions = true, float soundtime = 0.0f );
 
+#ifdef HOE_DLL
+	virtual void EmitPlayerUseSound( void );
+
+	// close caption icon
+	void SetCCImageName( string_t name ) { m_iszCCImageName = name; }
+	string_t GetCCImageName( void ) { return m_iszCCImageName; }
+	CNetworkVar( string_t, m_iszCCImageName ); // Probably no need to send to the client
+
+	// Recinding a caption
+	virtual void RescindClosedCaption( void );
+	short m_nClosedCaptionID; // ID of last caption this entity emitted
+
+#endif // HOE_DLL
+
 	static bool IsPrecacheAllowed();
 	static void SetAllowPrecache( bool allow );
 
@@ -1791,6 +1842,25 @@ public:
 	{
 		return s_bAbsQueriesValid;
 	}
+#ifdef HOE_DLL
+public:
+	virtual void OnUseableEnter( CBasePlayer *player );
+	virtual void OnUseableLeave( CBasePlayer *player );
+	virtual void OnPlayerLook( CBasePlayer *player );
+	virtual void OnPlayerUnlook( CBasePlayer *player );
+
+	COutputEvent m_OnUseableEnter;
+	COutputEvent m_OnUseableLeave;
+	COutputEvent m_OnPlayerLook;
+	COutputEvent m_OnPlayerUnlook;
+
+	void InputSetUseableString( inputdata_t &inputdata ); 
+	void InputSetUseableFOV( inputdata_t &inputdata ); 
+
+	string_t m_iszUseableString;
+	QAngle m_angUseable;
+	float m_flUseableFOV;
+#endif
 };
 
 // Send tables exposed in this module.

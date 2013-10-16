@@ -516,6 +516,9 @@ bool CAI_FollowBehavior::IsFollowTargetInRange( float rangeMultiplier )
 		{
 			if ( m_FollowNavGoal.flags & AIFF_REQUIRE_LOS_OUTSIDE_COMBAT )
 			{
+#ifdef HOE_DLL
+				Assert( GetFollowTarget()->IsPlayer() );
+#endif // HOE_DLL
 				//trace_t tr;
 				//AI_TraceLOS( vecStart, vecStart + vecDir * 8192, m_hFollowTarget, &tr );
 				//if ( AI_TraceLOS m_FollowNavGoal.position
@@ -552,6 +555,9 @@ bool CAI_FollowBehavior::IsFollowGoalInRange( float tolerance, float zTolerance,
 
 	if ( flags & AIFF_REQUIRE_LOS_OUTSIDE_COMBAT && m_hFollowTarget.Get() )
 	{
+#ifdef HOE_DLL
+		Assert( GetOuter()->GetSenses()->ShouldSeeEntity( m_hFollowTarget ) );
+#endif // HOE_DLL
 		if ( !GetOuter()->GetSenses()->DidSeeEntity( m_hFollowTarget ) )
 			return false;
 	}
@@ -1105,8 +1111,14 @@ int CAI_FollowBehavior::SelectSchedule()
 			if ( result != SCHED_NONE )
 				return result;
 				
+#ifdef HOE_DLL
+			// Barney wouldn't reload at all when following if he had no bullets
+			if ( HasCondition ( COND_NO_PRIMARY_AMMO ) )
+				return SCHED_HIDE_AND_RELOAD;
+#else
 			if ( HasCondition ( COND_NO_PRIMARY_AMMO ) && HaveSequenceForActivity( GetOuter()->TranslateActivity( ACT_RUN_AIM ) ) )
 				return SCHED_HIDE_AND_RELOAD;
+#endif
 		}
 
 		if ( PlayerIsPushing() )	
@@ -1393,7 +1405,11 @@ void CAI_FollowBehavior::StartTask( const Task_t *pTask )
 					bool bIsEpisodicVitalAlly;
 					
 #ifdef HL2_DLL
+#ifdef HOE_DLL
+					bIsEpisodicVitalAlly = (hl2_episodic.GetBool() && GetOuter()->ClassifyPlayerAllyVital() );
+#else // HOE_DLL
 					bIsEpisodicVitalAlly = (hl2_episodic.GetBool() && GetOuter()->Classify() == CLASS_PLAYER_ALLY_VITAL);
+#endif // HOE_DLL
 #else
 					bIsEpisodicVitalAlly = false;
 #endif//HL2_DLL
@@ -1868,6 +1884,9 @@ void CAI_FollowBehavior::RunTask( const Task_t *pTask )
 					// If we're supposed to have LOS, run to catch up
 					if ( m_FollowNavGoal.flags & AIFF_REQUIRE_LOS_OUTSIDE_COMBAT )
 					{
+#ifdef HOE_DLL
+						Assert( GetOuter()->GetSenses()->ShouldSeeEntity( m_hFollowTarget ) );
+#endif // HOE_DLL
 						if ( !GetOuter()->GetSenses()->DidSeeEntity( m_hFollowTarget ) )
 						{
 							followActivity = ACT_RUN;
@@ -1941,7 +1960,11 @@ void CAI_FollowBehavior::BuildScheduleTestBits()
 		   IsCurSchedule(SCHED_ALERT_FACE_BESTSOUND ) )
 	{
 #ifdef HL2_EPISODIC
+#ifdef HOE_DLL
+		if( IsCurSchedule(SCHED_RELOAD, false) /*&& GetOuter()->ClassifyPlayerAllyVital()*/ )
+#else // HOE_DLL
 		if( IsCurSchedule(SCHED_RELOAD, false) && GetOuter()->Classify() == CLASS_PLAYER_ALLY_VITAL )
+#endif // HOE_DLL
 		{
 			// Alyx and Barney do not stop reloading because the player has moved. 
 			// Citizens and other regular allies do.
@@ -2340,6 +2363,27 @@ static AI_FollowSlot_t g_CommanderFollowFormationSlots[] =
 	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
 	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
 	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+#ifdef HOE_DLL
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+	{ 1, { 0, 0, 0 }, 0, COMMANDER_TOLERANCE, COMMANDER_TOLERANCE, -1, 48 },
+#endif // HOE_DLL
 };
 
 static AI_FollowFormation_t g_CommanderFollowFormation = 
@@ -2371,7 +2415,11 @@ static AI_FollowFormation_t g_TightFollowFormation =
 {
 	"Tight",
 	AIFF_DEFAULT | AIFF_USE_FOLLOW_POINTS,
+#ifdef HOE_DLL // BUG
+	ARRAYSIZE(g_TightFollowFormationSlots),
+#else
 	ARRAYSIZE(g_CommanderFollowFormationSlots),
+#endif
 	48,							// followPointTolerance
 	6,							// targetMoveTolerance
 	60,							// repathOnRouteTolerance

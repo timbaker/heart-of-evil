@@ -24,6 +24,10 @@
 #include "materialsystem/imaterialsystemhardwareconfig.h"
 #include "tier1/callqueue.h"
 #include "tier1/memstack.h"
+#ifdef HOE_ROPE_DLIGHT
+#include "dlight.h"
+#include "iefx.h"
+#endif // HOE_ROPE_DLIGHT
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -1423,6 +1427,13 @@ void C_RopeKeyframe::ClientThink()
 
 		UpdateBBox();
 	}
+
+#ifdef HOE_ROPE_DLIGHT
+	if ( m_flLastRenderTime > gpGlobals->curtime - 0.1f )
+	{
+		UpdateLightValues();
+	}
+#endif // HOE_ROPE_DLIGHT
 }
 
 
@@ -1452,6 +1463,9 @@ int C_RopeKeyframe::DrawModel( int flags )
 	ConstrainNodesBetweenEndpoints();
 
 	RopeManager()->AddToRenderCache( this );
+#ifdef HOE_ROPE_DLIGHT
+	m_flLastRenderTime = gpGlobals->curtime;
+#endif // HOE_ROPE_DLIGHT
 	return 1;
 }
 
@@ -1568,7 +1582,24 @@ inline bool C_RopeKeyframe::DidEndPointMove( int iPt )
 
 	bool bOld = m_bPrevEndPointPos[iPt];
 	Vector vOld = m_vPrevEndPointPos[iPt];
+#ifdef HOE_DLL
+	// With the original version of this code a rope endpoint could move several times with
+	// dist<0.1 for a total movement > 0.1.
+	Vector vNew;
+	bool bNew = GetEndPointPos( iPt, vNew );
+	
+	// If it wasn't and isn't attached to anything, don't register a change.
+	if( !bOld && !bNew )
+		return true;
 
+	// Register a change if the endpoint moves.
+	if( VectorsAreEqual( vOld, vNew, 0.1 ) )
+		return false;
+
+	m_bPrevEndPointPos[iPt] = bNew;
+	m_vPrevEndPointPos[iPt] = vNew;
+	return true;
+#else // HOE_DLL
 	m_bPrevEndPointPos[iPt] = GetEndPointPos( iPt, m_vPrevEndPointPos[iPt] );
 	
 	// If it wasn't and isn't attached to anything, don't register a change.
@@ -1578,7 +1609,7 @@ inline bool C_RopeKeyframe::DidEndPointMove( int iPt )
 	// Register a change if the endpoint moves.
 	if( !VectorsAreEqual( vOld, m_vPrevEndPointPos[iPt], 0.1 ) )
 		return true;
-
+#endif // HOE_DLL
 	return false;
 }
 
@@ -1744,9 +1775,21 @@ void C_RopeKeyframe::BuildRope( RopeSegData_t *pSegmentData, const Vector &vCurr
 
 	// Figure out texture scale.
 	float flPixelsPerInch = 4.0f / m_TextureScale;
+#ifdef HOE_DLL
+	float ropeLength = 0;
+	float segmentLength[MAX_ROPE_SEGMENTS];
+	for ( int iSegment = 1; iSegment < nSegmentCount; ++iSegment )
+	{
+		segmentLength[iSegment-1] = (pSegmentData->m_Segments[iSegment].m_vPos - pSegmentData->m_Segments[iSegment-1].m_vPos).Length();
+		ropeLength += segmentLength[iSegment-1];
+	}
+//	float flTotalTexCoord = flPixelsPerInch * ropeLength;
+//	int nTotalPoints = nSegmentCount;
+#else
 	float flTotalTexCoord = flPixelsPerInch * ( pQueuedData->m_RopeLength + pQueuedData->m_Slack + ROPESLACK_FUDGEFACTOR );
 	int nTotalPoints = ( nodeCount - 1 ) * nSubdivCount + 1;
 	float flActualInc = ( flTotalTexCoord / nTotalPoints ) / ( float )m_TextureHeight;
+#endif
 
 	// First draw a translucent rope underneath the solid rope for an antialiasing effect.
 	if ( ShouldUseFakeAA( m_pBackMaterial ) )
@@ -1803,7 +1846,14 @@ void C_RopeKeyframe::BuildRope( RopeSegData_t *pSegmentData, const Vector &vCurr
 			}
 
 			// Get the next texture coordinate.
+#ifdef HOE_DLL
+			if ( iSegment < nSegmentCount - 1 )
+			{
+				flTexCoord += flPixelsPerInch * segmentLength[iSegment] / (float)m_TextureHeight;
+			}
+#else // HOE_DLL
 			flTexCoord += flActualInc;
+#endif // HOE_DLL
 		}
 	}
 	else
@@ -1819,7 +1869,14 @@ void C_RopeKeyframe::BuildRope( RopeSegData_t *pSegmentData, const Vector &vCurr
 			pSegmentData->m_BackWidths[iSegment] = -1.0f;
 
 			// Get the next texture coordinate.
+#ifdef HOE_DLL
+			if ( iSegment < nSegmentCount - 1 )
+			{
+				flTexCoord += flPixelsPerInch * segmentLength[iSegment] / (float)m_TextureHeight;
+			}
+#else // HOE_DLL
 			flTexCoord += flActualInc;
+#endif // HOE_DLL
 		}
 	}
 }
@@ -1843,6 +1900,89 @@ void C_RopeKeyframe::UpdateBBox()
 	mins -= GetAbsOrigin();
 	maxs -= GetAbsOrigin();
 	SetCollisionBounds( mins, maxs );
+}
+
+#ifdef HOE_ROPE_DLIGHT
+// This gathers light information from all active dlights.  The code was taken from
+// c_particle_smokegrenade.cpp.
+void C_RopeKeyframe::UpdateLightValues( void )
+{
+	// Start with static light info
+	CalcLightValues();
+
+	const Vector &vMins = GetAbsOrigin() + WorldAlignMins();
+	const Vector &vMaxs = GetAbsOrigin() + WorldAlignMaxs();
+
+	dlight_t *lights[MAX_DLIGHTS];
+	int nLights = effects->CL_GetActiveDLights( lights );
+
+	int m_nActiveLights = 0;
+	struct CActiveLight {
+		Vector m_vColor;
+		float m_flRadiusSqr;
+		Vector m_vOrigin;
+	} m_ActiveLights[MAX_DLIGHTS];
+
+	// Collect dlights that intersect our bounding box
+	for ( int i=0; i < nLights; i++ )
+	{
+		dlight_t *pIn = lights[i];
+		if ( pIn->origin.x + pIn->radius <= vMins.x || 
+			 pIn->origin.y + pIn->radius <= vMins.y || 
+			 pIn->origin.z + pIn->radius <= vMins.z || 
+			 pIn->origin.x - pIn->radius >= vMaxs.x || 
+			 pIn->origin.y - pIn->radius >= vMaxs.y || 
+			 pIn->origin.z - pIn->radius >= vMaxs.z )
+		{
+		}
+		else
+		{
+			CActiveLight *pOut = &m_ActiveLights[m_nActiveLights];
+			if ( (pIn->color.r != 0 || pIn->color.g != 0 || pIn->color.b != 0) && pIn->color.exponent != 0 )
+			{
+				ColorRGBExp32ToVector( pIn->color, pOut->m_vColor );
+				pOut->m_vColor /= 255.0f;
+				pOut->m_flRadiusSqr = pIn->radius * pIn->radius;
+				pOut->m_vOrigin = pIn->origin;
+				++m_nActiveLights;
+			}
+		}
+	}
+
+	// Apply light from dlights to our segments
+	for( int j=0; j < m_RopePhysics.NumNodes(); j++ )
+	{
+		Vector color = m_LightValues[j];
+		const Vector &vPos = m_RopePhysics.GetNode(j)->m_vPredicted;
+
+		for ( int i=0; i < m_nActiveLights; i++ )
+		{
+			CActiveLight *pLight = &m_ActiveLights[i];
+
+			float flDistSqr = (vPos - pLight->m_vOrigin).LengthSqr();
+#if 1
+			if ( flDistSqr < pLight->m_flRadiusSqr )
+			{
+				color += pLight->m_vColor * (20 / flDistSqr) * (1 - flDistSqr / pLight->m_flRadiusSqr);
+			}
+#else
+			if ( flDistSqr < pLight->m_flRadiusSqr )
+			{
+				color += pLight->m_vColor * (1 - flDistSqr / pLight->m_flRadiusSqr) * 0.1f;
+			}
+#endif
+		}
+	
+		// Rescale the color..
+		float flMax = max( color.x, max( color.y, color.z ) );
+		if ( flMax > 1 )
+		{
+			color /= flMax;
+		}
+
+		m_LightValues[j] = color;
+	}
+#endif // HOE_ROPE_DLIGHT
 }
 
 

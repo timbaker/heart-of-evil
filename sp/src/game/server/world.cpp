@@ -50,6 +50,9 @@ public:
 
 	void	Spawn( void );
 	bool	KeyValue( const char *szKeyName, const char *szValue );
+#ifdef HOE_DLL
+	void	Precache( void );
+#endif
 
 	// Need to apply static decals here to get them into the signon buffer for the server appropriately
 	virtual void Activate();
@@ -64,6 +67,10 @@ public:
 public:
 	int		m_nTexture;
 	bool	m_bLowPriority;
+#ifdef HOE_DLL
+	string_t	m_iszTexture;
+	bool		m_bApplied;
+#endif
 
 private:
 
@@ -74,6 +81,9 @@ BEGIN_DATADESC( CDecal )
 
 	DEFINE_FIELD( m_nTexture, FIELD_INTEGER ),
 	DEFINE_KEYFIELD( m_bLowPriority, FIELD_BOOLEAN, "LowPriority" ), // Don't mark as FDECAL_PERMANENT so not save/restored and will be reused on the client preferentially
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_iszTexture, FIELD_STRING ),
+#endif
 
 	// Function pointers
 	DEFINE_FUNCTION( StaticDecal ),
@@ -84,6 +94,11 @@ BEGIN_DATADESC( CDecal )
 END_DATADESC()
 
 LINK_ENTITY_TO_CLASS( infodecal, CDecal );
+
+#ifdef HOE_DLL
+// Hammer-placed decals will dis
+ConVar hoe_decal_preserve( "hoe_decal_preserve", "1", FCVAR_ARCHIVE );
+#endif
 
 // UNDONE:  These won't get sent to joining players in multi-player
 void CDecal::Spawn( void )
@@ -96,12 +111,32 @@ void CDecal::Spawn( void )
 	} 
 }
 
+#ifdef HOE_DLL
+void CDecal::Precache( void )
+{
+	// If the decal isn't precached when the level changes it won't be drawn.
+	// This also fixes a bug with TriggerDecal since normally the decal is only precached
+	// when the entity is first created (see KeyValue). Adding to scripts/decals_subrect.txt
+	// might fix that though.
+	if ( m_iszTexture != NULL_STRING )
+		m_nTexture = UTIL_PrecacheDecal( STRING( m_iszTexture ) );
+}
+#endif
+
 void CDecal::Activate()
 {
 	BaseClass::Activate();
 
 	if ( !GetEntityName() )
 	{
+#ifdef HOE_DLL
+		// Reapply the decal unless we are loading from a savefile.
+		// BUG: When transitioning back to a map the decals are painted twice; but without
+		// this the decal isn't painted at all. If the game is saved/restored after
+		// level transition a decal is only painted once (i.e., the top layer is removed).
+		if ( hoe_decal_preserve.GetBool() == false ||
+			gpGlobals->eLoadType != MapLoad_LoadGame )
+#endif
 		StaticDecal();
 	}
 	else
@@ -213,6 +248,9 @@ void CDecal::StaticDecal( void )
 		engine->StaticDecal( position, m_nTexture, entityIndex, modelIndex, m_bLowPriority );
 	}
 
+#ifdef HOE_DLL
+	if ( hoe_decal_preserve.GetBool() == false )
+#endif
 	SUB_Remove();
 }
 
@@ -221,6 +259,9 @@ bool CDecal::KeyValue( const char *szKeyName, const char *szValue )
 {
 	if (FStrEq(szKeyName, "texture"))
 	{
+#ifdef HOE_DLL
+		m_iszTexture = AllocPooledString( szValue );
+#endif
 		// FIXME:  should decals all be preloaded?
 		m_nTexture = UTIL_PrecacheDecal( szValue, true );
 		
@@ -643,6 +684,10 @@ void CWorld::Precache( void )
 	else
 	{
 		PrecacheModel( "models/gibs/hgibs.mdl" );
+#ifdef HOE_DLL
+		extern void PrecacheHGibs( void );
+		PrecacheHGibs();
+#endif
 	}
 
 	PrecacheScriptSound( "BaseEntity.EnterWater" );
@@ -695,6 +740,13 @@ void CWorld::Precache( void )
 	}
 
 	g_iszFuncBrushClassname = AllocPooledString("func_brush");
+
+#ifdef HOE_DLL
+	extern float g_flSpeakerTime;
+	g_flSpeakerTime = 0;
+	extern float g_flHumanSpeechTime;
+	g_flHumanSpeechTime = 0;
+#endif
 }
 
 //-----------------------------------------------------------------------------

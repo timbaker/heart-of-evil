@@ -43,7 +43,13 @@ public:
 	Class_T Classify ( void );
 	void	HandleAnimEvent( animevent_t *pEvent );
 	int		GetSoundInterests ( void );
+#ifdef HOE_DLL
+	int		PlayScriptedSentence( const char *pszSentence, float delay, float volume, soundlevel_t soundlevel, bool bConcurrent, CBaseEntity *pListener );
+	void	Event_Killed( const CTakeDamageInfo &info );
+	void	OnStartSpeaking( void );
 
+	short	m_nSpeakClosedCaptionID;
+#endif
 	
 	void	TempGunEffect( void );
 
@@ -166,6 +172,39 @@ void CGenericActor::Precache()
 {
 	PrecacheModel( STRING( GetModelName() ) );
 }	
+
+#ifdef HOE_DLL
+
+int CGenericActor::PlayScriptedSentence( const char *pszSentence, float delay, float volume, soundlevel_t soundlevel, bool bConcurrent, CBaseEntity *pListener )
+{
+	int sentenceIndex = BaseClass::PlayScriptedSentence( pszSentence, delay, volume, soundlevel, bConcurrent, pListener );
+	if ( pListener != NULL && sentenceIndex != -1 )
+	{
+		float flDuration = engine->SentenceLength( sentenceIndex );
+		AddLookTarget( pListener, 1.0, flDuration );
+	}
+	return sentenceIndex;
+}
+
+void CGenericActor::Event_Killed( const CTakeDamageInfo &info )
+{
+	if ( IsSpeaking() )
+	{
+		m_nClosedCaptionID = m_nSpeakClosedCaptionID;
+		m_nSpeakClosedCaptionID = 0;
+		RescindClosedCaption();
+	}
+	SentenceStop();
+	BaseClass::Event_Killed( info );
+}
+
+//-----------------------------------------------------------------------------
+void CGenericActor::OnStartSpeaking( void )
+{
+	m_nSpeakClosedCaptionID = m_nClosedCaptionID;
+}
+
+#endif
 
 //=========================================================
 // AI Schedules Specific to this NPC

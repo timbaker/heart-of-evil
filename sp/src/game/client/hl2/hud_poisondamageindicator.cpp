@@ -82,6 +82,9 @@ void CHudPoisonDamageIndicator::Reset( void )
 //-----------------------------------------------------------------------------
 bool CHudPoisonDamageIndicator::ShouldDraw( void )
 {
+#ifdef HOE_DLL
+	return false;
+#else
 	C_BasePlayer *pPlayer = C_BasePlayer::GetLocalPlayer();
 	if ( !pPlayer )
 		return false;
@@ -89,6 +92,7 @@ bool CHudPoisonDamageIndicator::ShouldDraw( void )
 	bool bNeedsDraw = ( ( pPlayer->IsPoisoned() != m_bDamageIndicatorVisible ) || ( GetAlpha() > 0 ) );
 
 	return ( bNeedsDraw && CHudElement::ShouldDraw() );
+#endif
 }
 
 //-----------------------------------------------------------------------------

@@ -87,8 +87,11 @@ public:
 	int  BloodColor( void ) { return DONT_BLEED; }
 	void GibMonster( void );
 
+#ifdef HOE_DLL
+#else
 	Class_T Classify ( void ) { return CLASS_COMBINE; }
-			 
+#endif
+
 	void CallDyingThink( void ) { DyingThink(); }
 
 	bool HasEnemy( void ) { return GetEnemy() != NULL; }

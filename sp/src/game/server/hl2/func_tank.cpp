@@ -29,6 +29,9 @@
 #include "ai_basenpc.h"
 #include "ai_behavior_functank.h"
 #include "weapon_rpg.h"
+#ifdef HOE_DLL
+#include "weapon_rpg7.h"
+#endif
 #include "effects.h"
 #include "iservervehicle.h"
 #include "soundenvelope.h"
@@ -139,6 +142,11 @@ BEGIN_DATADESC( CFuncTank )
 	DEFINE_FIELD( m_bUsePoseParameters, FIELD_BOOLEAN ),
 
 	DEFINE_KEYFIELD( m_iEffectHandling, FIELD_INTEGER, "effecthandling" ),
+
+#ifdef HOE_DLL
+	// Gross hack so name3 guns can determine what the player is aiming at when a wall is between the gun and the player
+	DEFINE_KEYFIELD( m_vPlayerViewOffset, FIELD_VECTOR, "playerviewoffset" ),
+#endif
 
 	// Inputs
 	DEFINE_INPUTFUNC( FIELD_VOID, "Activate", InputActivate ),
@@ -1695,6 +1703,11 @@ void CFuncTank::CalcPlayerCrosshairTarget( Vector *pVecTarget )
 	trace_t	tr;
 	
 	vecStart = pPlayer->EyePosition();
+#ifdef HOE_DLL
+	// Gross hack so name3 guns can determine what the player is aiming at when a wall is between the gun and the player
+	if ( m_vPlayerViewOffset != vec3_origin )
+		vecStart = GetAbsOrigin() + m_vPlayerViewOffset;
+#endif
 
 	if ( !IsX360() )
 	{
@@ -2720,13 +2733,21 @@ LINK_ENTITY_TO_CLASS( func_tankrocket, CFuncTankRocket );
 
 void CFuncTankRocket::Precache( void )
 {
+#ifdef HOE_DLL
+	UTIL_PrecacheOther( "rpg7_rocket" );
+#else
 	UTIL_PrecacheOther( "rpg_missile" );
+#endif
 	CFuncTank::Precache();
 }
 
 void CFuncTankRocket::Fire( int bulletCount, const Vector &barrelEnd, const Vector &forward, CBaseEntity *pAttacker, bool bIgnoreSpread )
 {
+#ifdef HOE_DLL
+	CRPG7Rocket *pRocket = (CRPG7Rocket *) CBaseEntity::Create( "rpg7_rocket", barrelEnd, GetAbsAngles(), this );
+#else
 	CMissile *pRocket = (CMissile *) CBaseEntity::Create( "rpg_missile", barrelEnd, GetAbsAngles(), this );
+#endif
 	
 	pRocket->DumbFire();
 	pRocket->SetNextThink( gpGlobals->curtime + 0.1f );
@@ -3750,6 +3771,37 @@ void CMortarShell::FadeThink( void )
 
 //=========================================================
 //=========================================================
+#ifdef HOE_DLL
+class CFuncTankMortar : public CFuncTank
+{
+public:
+	DECLARE_CLASS( CFuncTankMortar, CFuncTank );
+	DECLARE_DATADESC();
+
+	void Fire( int bulletCount, const Vector &barrelEnd, const Vector &vecForward, CBaseEntity *pAttacker, bool bIgnoreSpread );
+
+	int			m_Magnitude;
+};
+
+LINK_ENTITY_TO_CLASS( func_tankmortar, CFuncTankMortar );
+
+BEGIN_DATADESC( CFuncTankMortar )
+	DEFINE_KEYFIELD( m_Magnitude, FIELD_INTEGER, "iMagnitude" ),
+END_DATADESC()
+
+void CFuncTankMortar::Fire( int bulletCount, const Vector &barrelEnd, const Vector &forward, CBaseEntity *pAttacker, bool bIgnoreSpread )
+{
+	trace_t tr;
+
+	if ( bulletCount > 0 )
+	{
+		TankTrace( barrelEnd, forward, gTankSpread[m_spread], tr );
+		ExplosionCreate( tr.endpos, GetLocalAngles(), this, m_Magnitude * 2.5, m_Magnitude, 0);			
+		CFuncTank::Fire( bulletCount, barrelEnd, forward, this, bIgnoreSpread );
+	}
+}
+
+#else // HOE_DLL
 class CFuncTankMortar : public CFuncTank
 {
 public:
@@ -3965,6 +4017,8 @@ void CFuncTankMortar::Fire( int bulletCount, const Vector &barrelEnd, const Vect
 	CMortarShell::Create( barrelEnd, tr.endpos, vecFinalDir, m_fireDelay, m_flWarningTime, m_incomingSound );
 	BaseClass::Fire( bulletCount, barrelEnd, vecForward, this, bIgnoreSpread );
 }
+
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Func tank that fires physics cannisters placed on it

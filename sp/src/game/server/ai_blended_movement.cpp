@@ -321,6 +321,14 @@ void CAI_BlendedMotor::SetMoveScriptAnim( float flNewSpeed )
 		ResetGoalSequence();
 	}
 
+#ifdef HOE_DLLxxx
+	DevMsg( "NAV %s ARI %s PRI %s SEC %s\n",
+		GetOuter()->GetSequenceName(pNavigator->GetMovementSequence()),
+		GetOuter()->GetSequenceName(pNavigator->GetArrivalSequence(pNavigator->GetMovementSequence())),
+		GetOuter()->GetSequenceName(m_nPrimarySequence),
+		GetOuter()->GetSequenceName(m_nSecondarySequence));
+#endif
+
 	// detect state change
 	Activity activity = GetOuter()->NPC_TranslateActivity( m_nSavedGoalActivity );
 	if ( activity != m_nSavedTranslatedGoalActivity )
@@ -521,6 +529,17 @@ AIMotorMoveResult_t CAI_BlendedMotor::MoveGroundExecute( const AILocalMoveGoal_t
 	float flTotalDist = GetMoveScriptDist( flNewSpeed );
 
 	Assert( move.maxDist < 0.01 || flTotalDist > 0.0 );
+
+#ifdef HOE_DLL
+	if ( !(move.maxDist < 0.01 || flTotalDist > 0.0) )
+	{
+		if ( move.curExpectedDist > 0 && move.curExpectedDist < 1.0 && flTotalDist == 0.0 )
+		{
+			DevWarning( "FORCING NON-ZERO MOVEMENT dist=%.2f\n", move.curExpectedDist );
+			flTotalDist = move.curExpectedDist;
+		}
+	}
+#endif // HOE_DLL
 
 	// --------------------------------------------
 	// turn in the direction of movement

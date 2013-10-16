@@ -85,6 +85,9 @@ BEGIN_DATADESC( CRopeKeyframe )
 	DEFINE_INPUTFUNC( FIELD_FLOAT,	"SetScrollSpeed",	InputSetScrollSpeed ),
 	DEFINE_INPUTFUNC( FIELD_VECTOR,	"SetForce",			InputSetForce ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"Break",			InputBreak ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_STRING,	"SetStartPoint",	InputSetStartPoint ),
+#endif // HOE_DLL
 
 END_DATADESC()
 
@@ -256,6 +259,36 @@ CRopeKeyframe* CRopeKeyframe::CreateWithSecondPointDetached(
 
 	return pRet;
 }
+
+#ifdef HOE_DLL
+CRopeKeyframe* CRopeKeyframe::CreateWithStartPosition(
+	const Vector &vStartPos,
+	CBaseEntity *pEndEnt,
+	int iEndAttachment,
+	int ropeWidth,
+	const char *pMaterialName,
+	int numSegments
+	)
+{
+	CRopeKeyframe *pRet = (CRopeKeyframe*)CreateEntityByName( "keyframe_rope" );
+	if( !pRet )
+		return NULL;
+
+	pRet->SetAbsOrigin( vStartPos );
+	pRet->SetStartPoint( pRet );
+	pRet->SetEndPoint( pEndEnt, iEndAttachment );
+	pRet->m_bCreatedFromMapFile = false;
+	pRet->m_RopeFlags &= ~ROPE_INITIAL_HANG;
+
+	pRet->Init();
+
+	pRet->SetMaterial( pMaterialName );
+	pRet->m_Width = ropeWidth;
+	pRet->m_nSegments = clamp( numSegments, 2, ROPE_MAX_SEGMENTS );
+
+	return pRet;
+}
+#endif // HOE_DLL
 
 void CRopeKeyframe::ActivateStartDirectionConstraints( bool bEnable )
 {
@@ -554,6 +587,54 @@ void CRopeKeyframe::InputBreak( inputdata_t &inputdata )
 	//Route through the damage code
 	Break();
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CRopeKeyframe::InputSetStartPoint( inputdata_t &inputdata )
+{
+	char token[256];
+	const char *p = inputdata.value.String();
+
+	p = nexttoken(token, p, ':');
+
+	CBaseEntity *pEnt = gEntList.FindEntityByName( NULL, token );
+
+	if ( pEnt == NULL )
+	{
+		Msg( "Rope %s(%s) has bad start point %s\n", STRING(m_iClassname), GetDebugName(), token );
+		return;
+	}
+
+	// make sure there isn't any ambiguity
+	if ( gEntList.FindEntityByName( pEnt, token ) )
+	{
+		Msg( "Rope %s(%s) has ambigious parent %s\n", STRING(m_iClassname), GetDebugName(), token );
+	}
+
+	const char *szInputName = "SetStartPoint";
+
+	// Valid only on CBaseAnimating
+	CBaseAnimating *pAnimating = pEnt->GetBaseAnimating();
+	if ( !pAnimating )
+	{
+		Warning("ERROR: Tried to %s for entity %s (%s), but its parent has no model.\n", szInputName, GetClassname(), GetDebugName() );
+		return;
+	}
+
+	p = nexttoken(token, p, ':');
+
+	// Lookup the attachment
+	int iAttachment = pAnimating->LookupAttachment( token );
+	if ( !iAttachment )
+	{
+		Warning("ERROR: Tried to %s for entity %s (%s), but it has no attachment named %s.\n", szInputName, GetClassname(), GetDebugName(), token );
+		return;
+	}
+
+	SetStartPoint( pEnt, iAttachment );
+	RecalculateLength();
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Breaks the rope

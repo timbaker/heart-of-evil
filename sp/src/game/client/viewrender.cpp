@@ -76,6 +76,9 @@
 
 // Projective textures
 #include "C_Env_Projected_Texture.h"
+#ifdef HOE_DLL
+#include "hoe/scope_rendertarget.h"
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -1949,6 +1952,13 @@ void CViewRender::RenderView( const CViewSetup &view, int nClearFlags, int whatT
 		}
 	#endif
 
+#ifdef HOE_DLL
+		if( g_pMaterialSystemHardwareConfig->GetDXSupportLevel() >= 70 )
+		{
+			DrawScope( view );
+		}
+#endif // HOE_DLL
+
 		g_bRenderingView = true;
 
 		// Must be first 
@@ -3151,6 +3161,63 @@ void CViewRender::DrawMonitors( const CViewSetup &cameraView )
 #endif // USE_MONITORS
 }
 
+#ifdef HOE_DLL
+void CViewRender::DrawScope( const CViewSetup &viewSet )
+{
+#if 1
+	if ( ScopeRenderTarget == NULL )
+		return;
+
+	if ( ScopeRenderTarget->IsScopeTextureActive() == false )
+		return;
+#else
+	C_BasePlayer *localPlayer = C_BasePlayer::GetLocalPlayer();
+
+	if ( !localPlayer )
+		return;
+
+	if ( !localPlayer->GetActiveWeapon() )
+		return;
+
+	if ( !localPlayer->GetActiveWeapon()->GetViewModel() )
+		return;
+#endif
+
+	//Copy our current View.
+	CViewSetup scopeView = viewSet;
+
+	//Get our camera render target.
+	ITexture *pRenderTarget = GetScopeTexture();
+
+	if( pRenderTarget == NULL )
+		return;
+
+	if( !pRenderTarget->IsRenderTarget() )
+		Msg(" not a render target");
+
+	//Our view information, Origin, View Direction, window size
+	//	location on material, and visual ratios.
+	scopeView.width = pRenderTarget->GetActualWidth();
+	scopeView.height = pRenderTarget->GetActualHeight();
+	scopeView.x = 0;
+	scopeView.y = 0;
+	scopeView.fov = ScopeRenderTarget->GetScopeTextureFOV();
+	scopeView.m_bOrtho = false;
+
+	scopeView.m_flAspectRatio = 1.0f;
+
+	//Set the view up and output the scene to our RenderTarget (Scope Material).
+	Frustum frustum;
+	render->Push3DView( scopeView, VIEW_CLEAR_DEPTH | VIEW_CLEAR_COLOR, pRenderTarget, frustum/*GetFrustum()*/ );
+	bool bDrew3dSkybox = false;	// bDrew3dSkybox = true turns the skybox OFF. DO NOT SET IT TO TRUE.
+	SkyboxVisibility_t nSkyboxVisible = SKYBOX_3DSKYBOX_VISIBLE;
+	int nClearFlags = 0;
+	view_id_t viewID = VIEW_MONITOR;
+	ViewDrawScene( bDrew3dSkybox, nSkyboxVisible, scopeView, nClearFlags, viewID );
+	
+	render->PopView( frustum );
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 //

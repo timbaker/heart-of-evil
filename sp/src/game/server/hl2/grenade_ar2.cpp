@@ -60,7 +60,11 @@ void CGrenadeAR2::Spawn( void )
 	// Hits everything but debris
 	SetCollisionGroup( COLLISION_GROUP_PROJECTILE );
 
+#ifdef HOE_DLL
+	SetModel( "models/w_argrenade.mdl");
+#else
 	SetModel( "models/Weapons/ar2_grenade.mdl");
+#endif
 	UTIL_SetSize(this, Vector(-3, -3, -3), Vector(3, 3, 3));
 //	UTIL_SetSize(this, Vector(0, 0, 0), Vector(0, 0, 0));
 
@@ -243,7 +247,11 @@ void CGrenadeAR2::Detonate(void)
 
 void CGrenadeAR2::Precache( void )
 {
+#ifdef HOE_DLL
+	PrecacheModel("models/w_argrenade.mdl"); 
+#else
 	PrecacheModel("models/Weapons/ar2_grenade.mdl"); 
+#endif
 }
 
 

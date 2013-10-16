@@ -164,7 +164,10 @@ private:
 	int				m_iGrabbedBoneIndex;
 	bool			m_bPlayedPullSound;
 	bool			m_bPlayerWasStanding;
-	
+#ifdef HOE_DLL
+	float			m_flKillVictimTime;
+#endif
+
 	static const char	*m_szGibNames[NUM_BARNACLE_GIBS];
 
 	// Tongue spline points

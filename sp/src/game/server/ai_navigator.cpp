@@ -28,7 +28,11 @@
 #include "ai_localnavigator.h"
 #include "ai_moveprobe.h"
 #include "ai_hint.h"
+#ifdef HOE_DLL
+#include "doors.h"
+#else
 #include "BasePropDoor.h"
+#endif
 #include "props.h"
 #include "physics_npc_solver.h"
 
@@ -2160,6 +2164,19 @@ bool CAI_Navigator::OnMoveBlocked( AIMoveResult_t *pResult )
 		 GetPath()->GetCurWaypoint() &&
 		 ( GetPath()->GetCurWaypoint()->Flags() & bits_WP_TO_DOOR ) )
 	{
+#ifdef HOE_DLL
+		CBaseEntity *pDoorEnt = (CBaseEntity *)GetPath()->GetCurWaypoint()->GetEHandleData();
+		if ( pDoorEnt != NULL )
+		{
+			IDoor *pDoorIface = dynamic_cast< IDoor * >(pDoorEnt);
+			if ( pDoorIface != NULL )
+			{
+				GetOuter()->OpenDoorBegin( pDoorIface );
+				*pResult = AIMR_OK;
+				return true;
+			}
+		}
+#else
 		CBasePropDoor *pDoor = (CBasePropDoor *)(CBaseEntity *)GetPath()->GetCurWaypoint()->GetEHandleData();
 		if (pDoor != NULL)
 		{
@@ -2167,6 +2184,7 @@ bool CAI_Navigator::OnMoveBlocked( AIMoveResult_t *pResult )
 			*pResult = AIMR_OK;
 			return true;
 		}
+#endif
 	}
 
 
@@ -2265,7 +2283,11 @@ AIMoveResult_t CAI_Navigator::MoveNormal()
 	// --------------------------------
 
 	// FIXME: only need since IdealSpeed isn't based on movement activity but immediate activity!
+#ifdef HOE_DLLxxx // breaks NPC scripted movement??? HOE_DANGER
+	GetOuter()->SetIdealActivity( GetMovementActivity() );
+#else
 	SetActivity( GetMovementActivity() );
+#endif
 
 	if ( m_bValidateActivitySpeed && GetIdealSpeed() <= 0.0f )
 	{
@@ -2691,11 +2713,23 @@ void CAI_Navigator::AdvancePath()
 
 	if ( pCurWaypoint->Flags() & bits_WP_TO_DOOR )
 	{
+#ifdef HOE_DLL
+		CBaseEntity *pDoorEnt = (CBaseEntity *)pCurWaypoint->GetEHandleData();
+		if ( pDoorEnt != NULL )
+		{
+			IDoor *pDoorIface = dynamic_cast< IDoor * >(pDoorEnt);
+			if ( pDoorIface != NULL )
+			{
+				GetOuter()->OpenDoorBegin( pDoorIface );
+			}
+		}
+#else
 		CBasePropDoor *pDoor = (CBasePropDoor *)(CBaseEntity *)pCurWaypoint->GetEHandleData();
 		if (pDoor != NULL)
 		{
 			GetOuter()->OpenPropDoorBegin(pDoor);
 		}
+#endif
 		else
 		{
 			DevMsg("%s trying to open a door that has been deleted!\n", GetOuter()->GetDebugName());

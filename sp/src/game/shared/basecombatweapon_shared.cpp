@@ -24,6 +24,10 @@
 #include "tf_shareddefs.h"
 #endif
 
+#if defined( HOE_THIRDPERSON ) && !defined( CLIENT_DLL )
+#include "hl2_player.h"
+#endif // HOE_THIRDPERSON
+
 #if !defined( CLIENT_DLL )
 
 // Game DLL Headers
@@ -59,6 +63,15 @@ ConVar tf_weapon_criticals_bucket_cap( "tf_weapon_criticals_bucket_cap", "1000.0
 ConVar tf_weapon_criticals_bucket_bottom( "tf_weapon_criticals_bucket_bottom", "-250.0", FCVAR_REPLICATED | FCVAR_CHEAT );
 ConVar tf_weapon_criticals_bucket_default( "tf_weapon_criticals_bucket_default", "300.0", FCVAR_REPLICATED | FCVAR_CHEAT );
 #endif // TF
+
+#ifdef HOE_IRONSIGHTS
+ConVar hoe_ironsights_delay( "hoe_ironsights_delay", "0.2", FCVAR_REPLICATED );
+#define IRONSIGHTS_DURATION max(hoe_ironsights_delay.GetFloat(),0.1)
+#ifndef CLIENT_DLL
+ConVar hoe_ironsights( "hoe_ironsights", "1", FCVAR_ARCHIVE, "Set to 1 to allow some weapons to use ironsights instead of the crosshair." );
+ConVar hoe_ironsights_auto( "hoe_ironsights_auto", "0", FCVAR_ARCHIVE, "Switch to ironsights automatically when firing a weapon." );
+#endif
+#endif // HOE_IRONSIGHTS
 
 CBaseCombatWeapon::CBaseCombatWeapon()
 {
@@ -539,6 +552,62 @@ int CBaseCombatWeapon::GetRumbleEffect() const
 	return GetWpnData().iRumbleEffect;
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+Vector CBaseCombatWeapon::GetWeaponSelectionHUD_Origin( void ) const
+{
+	return GetWpnData().WeaponSelectionHUD_Origin;
+}
+
+//-----------------------------------------------------------------------------
+QAngle CBaseCombatWeapon::GetWeaponSelectionHUD_Angles( void ) const
+{
+	return GetWpnData().WeaponSelectionHUD_Angles;
+}
+
+//-----------------------------------------------------------------------------
+const char *CBaseCombatWeapon::GetWeaponSelectionHUD_Model( void ) const
+{
+	if ( GetWpnData().WeaponSelectionHUD_Model[0] )
+		return GetWpnData().WeaponSelectionHUD_Model;
+	return GetWorldModel();
+}
+
+//-----------------------------------------------------------------------------
+const char *CBaseCombatWeapon::GetWeaponSelectionHUD_Anim( void ) const
+{
+	return GetWpnData().WeaponSelectionHUD_Anim;
+}
+#endif // HOE_DLL
+
+#ifdef HOE_VIEWMODEL_FUDGE
+//-----------------------------------------------------------------------------
+Vector CBaseCombatWeapon::GetViewModelFudge_Origin( void ) const
+{
+	return GetWpnData().ViewModelFudge_Origin;
+}
+#endif // HOE_VIEWMODEL_FUDGE
+
+#ifdef HOE_IRONSIGHTS
+//-----------------------------------------------------------------------------
+Vector CBaseCombatWeapon::GetIronSights_Origin( void ) const
+{
+	return GetWpnData().IronSights_Origin;
+}
+
+//-----------------------------------------------------------------------------
+QAngle CBaseCombatWeapon::GetIronSights_Angles( void ) const
+{
+	return GetWpnData().IronSights_Angles;
+}
+
+//-----------------------------------------------------------------------------
+int CBaseCombatWeapon::GetIronSights_FOV( void ) const
+{
+	return GetWpnData().IronSights_FOV;
+}
+#endif // HOE_IRONSIGHTS
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -992,6 +1061,10 @@ void CBaseCombatWeapon::Equip( CBaseCombatCharacter *pOwner )
 	VPhysicsDestroyObject();
 #endif
 
+#ifdef HOE_WEAPONMODEL_FIX
+	// CBaseViewModel uses the v_model, CBaseCombatWeapon always uses the w_model!
+	SetModel( GetWorldModel() );
+#else
 	if ( pOwner->IsPlayer() )
 	{
 		SetModel( GetViewModel() );
@@ -1003,10 +1076,42 @@ void CBaseCombatWeapon::Equip( CBaseCombatCharacter *pOwner )
 		m_flNextSecondaryAttack = gpGlobals->curtime;
 		SetModel( GetWorldModel() );
 	}
+#endif
 }
 
 void CBaseCombatWeapon::SetActivity( Activity act, float duration ) 
-{ 
+{
+#ifdef HOE_WEAPONMODEL_FIX
+	// Player-held weapon? Set the animation on the v_model, the w_model is always "idle".
+	CBaseViewModel *vm = GetViewModelPtr();
+	if ( vm != NULL )
+	{
+		int sequence = vm->SelectWeightedSequence( act );
+		if ( sequence == ACTIVITY_NOT_AVAILABLE )
+			sequence = vm->SelectWeightedSequence( GetIdleActivity() );
+
+		if ( sequence != ACTIVITY_NOT_AVAILABLE )
+		{
+			vm->SetSequence( sequence );
+			SetActivity( act ); 
+			vm->SetCycle( 0 );
+			vm->ResetSequenceInfo( );
+
+			if ( duration > 0 )
+			{
+				// FIXME: does this even make sense in non-shoot animations?
+				vm->SetPlaybackRate( vm->SequenceDuration( sequence ) / duration );
+				vm->SetPlaybackRate( min( m_flPlaybackRate, 12.0 ) );  // FIXME; magic number!, network encoding range
+			}
+			else
+			{
+				vm->SetPlaybackRate( 1.0 );
+			}
+		}
+		return;
+	}
+#endif
+
 	//Adrian: Oh man...
 #if !defined( CLIENT_DLL ) && (defined( HL2MP ) || defined( PORTAL ))
 	SetModel( GetWorldModel() );
@@ -1016,7 +1121,11 @@ void CBaseCombatWeapon::SetActivity( Activity act, float duration )
 	
 	// FORCE IDLE on sequences we don't have (which should be many)
 	if ( sequence == ACTIVITY_NOT_AVAILABLE )
+#ifdef HOE_DLL
+		sequence = SelectWeightedSequence( GetIdleActivity() );
+#else // HOE_DLL
 		sequence = SelectWeightedSequence( ACT_VM_IDLE );
+#endif // HOE_DLL
 
 	//Adrian: Oh man again...
 #if !defined( CLIENT_DLL ) && (defined( HL2MP ) || defined( PORTAL ))
@@ -1404,12 +1513,29 @@ bool CBaseCombatWeapon::DefaultDeploy( char *szViewModel, char *szWeaponModel, i
 		SetViewModel();
 		SendWeaponAnim( iActivity );
 
+#ifdef HOE_WEAPONMODEL_FIX
+		pOwner->SetNextAttack( gpGlobals->curtime + GetViewModelSequenceDuration() );
+#else
 		pOwner->SetNextAttack( gpGlobals->curtime + SequenceDuration() );
+#endif
 	}
 
 	// Can't shoot again until we've finished deploying
+#ifdef HOE_WEAPONMODEL_FIX
+	if ( pOwner ) // always true, NPCs don't deploy ever
+	{
+		m_flNextPrimaryAttack	= gpGlobals->curtime + GetViewModelSequenceDuration();
+		m_flNextSecondaryAttack	= gpGlobals->curtime + GetViewModelSequenceDuration();
+	}
+	else
+	{
+		m_flNextPrimaryAttack	= gpGlobals->curtime + SequenceDuration();
+		m_flNextSecondaryAttack	= gpGlobals->curtime + SequenceDuration();
+	}
+#else
 	m_flNextPrimaryAttack	= gpGlobals->curtime + SequenceDuration();
 	m_flNextSecondaryAttack	= gpGlobals->curtime + SequenceDuration();
+#endif
 	m_flHudHintMinDisplayTime = 0;
 
 	m_bAltFireHudHintDisplayed = false;
@@ -1460,6 +1586,22 @@ bool CBaseCombatWeapon::Holster( CBaseCombatWeapon *pSwitchingTo )
 	// kill any think functions
 	SetThink(NULL);
 
+#ifdef HOE_DLL
+	// Send holster animation
+	SendWeaponAnim( GetHolsterActivity() );
+
+	// Some weapon's don't have holster anims yet, so detect that
+	float flSequenceDuration = 0;
+	if ( GetActivity() == GetHolsterActivity() )
+	{
+#ifdef HOE_WEAPONMODEL_FIX
+		if ( GetViewModelPtr() != NULL )
+			flSequenceDuration = GetViewModelSequenceDuration();
+		else
+#endif
+		flSequenceDuration = SequenceDuration();
+	}
+#else // HOE_DLL
 	// Send holster animation
 	SendWeaponAnim( ACT_VM_HOLSTER );
 
@@ -1469,11 +1611,31 @@ bool CBaseCombatWeapon::Holster( CBaseCombatWeapon *pSwitchingTo )
 	{
 		flSequenceDuration = SequenceDuration();
 	}
+#endif // HOE_DLL
 
 	CBaseCombatCharacter *pOwner = GetOwner();
 	if (pOwner)
 	{
 		pOwner->SetNextAttack( gpGlobals->curtime + flSequenceDuration );
+
+#ifdef HOE_IRONSIGHTS
+		CBasePlayer *pPlayer = ToBasePlayer( pOwner );
+		if ( pPlayer && GetIronSightsState() != IRONSIGHT_STATE_NONE )
+		{
+			// Unzoom
+			if ( GetIronSights_FOV() > 0 )
+				(void) pPlayer->SetFOV( this, 0, 0.2f );
+
+#if !defined(CLIENT_DLL) && !defined(HOE_THIRDPERSON)
+			if ( IsIronSightsActive() )
+				pPlayer->ShowCrosshair( true );
+#endif
+			m_nIronSightsState = IRONSIGHT_STATE_NONE; /* slam to NONE without animation or delay */
+#if defined(HOE_THIRDPERSON) && !defined(CLIENT_DLL)
+			pPlayer->ThirdPersonAimModeSwitch( false );
+#endif
+		}
+#endif // HOE_IRONSIGHTS
 	}
 
 	// If we don't have a holster anim, hide immediately to avoid timing issues
@@ -1499,6 +1661,37 @@ bool CBaseCombatWeapon::Holster( CBaseCombatWeapon *pSwitchingTo )
 
 	return true;
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+Activity CBaseCombatWeapon::GetHolsterActivity( void )
+{
+	return ACT_VM_HOLSTER;
+}
+
+//-----------------------------------------------------------------------------
+Activity CBaseCombatWeapon::GetIdleActivity( void )
+{
+#ifdef HOE_IRONSIGHTS
+	if ( IsIronSightsActive() )
+	{
+#ifdef HOE_WEAPONMODEL_FIX
+		CBaseViewModel *vm = GetViewModelPtr();
+		if ( vm != NULL ) // always true if ironsight active
+		{
+			if ( vm->SelectWeightedSequence( ACT_VM_IDLE_IRONSIGHT ) != ACTIVITY_NOT_AVAILABLE )
+				return ACT_VM_IDLE_IRONSIGHT;
+		}
+		else
+#endif
+		if ( SelectWeightedSequence( ACT_VM_IDLE_IRONSIGHT ) != ACTIVITY_NOT_AVAILABLE )
+			return ACT_VM_IDLE_IRONSIGHT;
+	}
+#endif // HOE_IRONSIGHTS
+	return ACT_VM_IDLE;
+}
+
+#endif // HOE_DLL
 
 #ifdef CLIENT_DLL
 
@@ -1607,6 +1800,16 @@ bool CBaseCombatWeapon::IsAllowedToWithdrawFromCritBucket( float flDamage )
 void CBaseCombatWeapon::ItemPreFrame( void )
 {
 	MaintainIdealActivity();
+
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+	if ( IsIronSightsTransitioning() && (gpGlobals->curtime - m_flIronSightsToggleTime >= IRONSIGHTS_DURATION) )
+	{
+		if ( GetIronSightsState() == IRONSIGHT_STATE_TO )
+			m_nIronSightsState = IRONSIGHT_STATE_ACTIVE;
+		else
+			m_nIronSightsState = IRONSIGHT_STATE_NONE;
+	}
+#endif
 
 #ifndef CLIENT_DLL
 #ifndef HL2_EPISODIC
@@ -1727,6 +1930,14 @@ void CBaseCombatWeapon::ItemPostFrame( void )
 			m_flNextPrimaryAttack = gpGlobals->curtime + 0.2;
 			return;
 		}
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+		// Switch to ironsight automatically when trying to shoot.
+		else if ( hoe_ironsights.GetBool() && hoe_ironsights_auto.GetBool() &&
+			HasIronSights() && GetIronSightsState() == IRONSIGHT_STATE_NONE )
+		{
+			ToggleIronSights();
+		}
+#endif // HOE_IRONSIGHTS
 		else
 		{
 			//NOTENOTE: There is a bug with this code with regards to the way machine guns catch the leading edge trigger
@@ -1769,6 +1980,11 @@ void CBaseCombatWeapon::ItemPostFrame( void )
 	// -----------------------
 	if (!((pOwner->m_nButtons & IN_ATTACK) || (pOwner->m_nButtons & IN_ATTACK2) || (CanReload() && pOwner->m_nButtons & IN_RELOAD)))
 	{
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+		if ( pOwner->m_afButtonPressed & IN_IRONSIGHTS )
+			ToggleIronSights();
+#endif // HOE_IRONSIGHTS
+
 		// no fire buttons down or reloading
 		if ( !ReloadOrSwitchWeapons() && ( m_bInReload == false ) )
 		{
@@ -1962,6 +2178,14 @@ bool CBaseCombatWeapon::DefaultReload( int iClipSize1, int iClipSize2, int iActi
 	if (!pOwner)
 		return false;
 
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+	if ( IsIronSightsActive() )
+	{
+		ToggleIronSights();
+		return false;
+	}
+#endif // HOE_IRONSIGHTS
+
 	// If I don't have any spare ammo, I can't reload
 	if ( pOwner->GetAmmoCount(m_iPrimaryAmmoType) <= 0 )
 		return false;
@@ -2002,10 +2226,21 @@ bool CBaseCombatWeapon::DefaultReload( int iClipSize1, int iClipSize2, int iActi
 	if ( pOwner->IsPlayer() )
 	{
 		( ( CBasePlayer * )pOwner)->SetAnimation( PLAYER_RELOAD );
+#if defined( HOE_THIRDPERSON ) && !defined( CLIENT_DLL )
+		ToHL2Player(pOwner)->DoAnimationEvent( PLAYERANIMEVENT_RELOAD );
+#endif // HOE_THIRDPERSON
 	}
 
 	MDLCACHE_CRITICAL_SECTION();
+#ifdef HOE_WEAPONMODEL_FIX
+	float flSequenceEndTime;
+	if ( GetViewModelPtr() != NULL ) // NPCs never call this, so always true?
+		flSequenceEndTime = gpGlobals->curtime + GetViewModelSequenceDuration();
+	else
+		flSequenceEndTime = gpGlobals->curtime + SequenceDuration();
+#else
 	float flSequenceEndTime = gpGlobals->curtime + SequenceDuration();
+#endif
 	pOwner->SetNextAttack( flSequenceEndTime );
 	m_flNextPrimaryAttack = m_flNextSecondaryAttack = flSequenceEndTime;
 
@@ -2049,7 +2284,11 @@ void CBaseCombatWeapon::WeaponIdle( void )
 	//Idle again if we've finished
 	if ( HasWeaponIdleTimeElapsed() )
 	{
+#ifdef HOE_DLL
+		SendWeaponAnim( GetIdleActivity() );
+#else // HOE_DLL
 		SendWeaponAnim( ACT_VM_IDLE );
+#endif // HOE_DLL
 	}
 }
 
@@ -2057,6 +2296,10 @@ void CBaseCombatWeapon::WeaponIdle( void )
 //=========================================================
 Activity CBaseCombatWeapon::GetPrimaryAttackActivity( void )
 {
+#ifdef HOE_IRONSIGHTS
+	if ( IsIronSightsActive() )
+		return ACT_VM_PRIMARYATTACK_IRONSIGHT;
+#endif // HOE_IRONSIGHTS
 	return ACT_VM_PRIMARYATTACK;
 }
 
@@ -2260,6 +2503,9 @@ void CBaseCombatWeapon::PrimaryAttack( void )
 
 	// player "shoot" animation
 	pPlayer->SetAnimation( PLAYER_ATTACK1 );
+#if defined( HOE_THIRDPERSON ) && !defined( CLIENT_DLL )
+	ToHL2Player(GetOwner())->DoAnimationEvent( PLAYERANIMEVENT_ATTACK_PRIMARY );
+#endif
 
 	FireBulletsInfo_t info;
 	info.m_vecSrc	 = pPlayer->Weapon_ShootPosition( );
@@ -2295,7 +2541,15 @@ void CBaseCombatWeapon::PrimaryAttack( void )
 
 	info.m_flDistance = MAX_TRACE_LENGTH;
 	info.m_iAmmoType = m_iPrimaryAmmoType;
+#ifdef HOE_IRONSIGHTS
+	// No tracer when ironsights are active
+	if ( IsIronSightsActive() == false )
+		info.m_iTracerFreq = 2;
+	else
+		info.m_iTracerFreq = 0;
+#else // HOE_IRONSIGHTS
 	info.m_iTracerFreq = 2;
+#endif // HOE_IRONSIGHTS
 
 #if !defined( CLIENT_DLL )
 	// Fire the bullets
@@ -2344,6 +2598,50 @@ void CBaseCombatWeapon::MaintainIdealActivity( void )
 //-----------------------------------------------------------------------------
 bool CBaseCombatWeapon::SetIdealActivity( Activity ideal )
 {
+#ifdef HOE_WEAPONMODEL_FIX
+	// Player-held weapon? Set the animation on the v_model, the w_model is always "idle".
+	CBaseViewModel *vm = GetViewModelPtr();
+	if ( vm != NULL )
+	{
+// logic_newgame_equip gives weapons via CBasePlayer:GiveNamedItem.
+// CBasePlayer:GiveNamedItem results in Weapon_Equip getting called, which calls GiveAmmo.
+// GiveAmmo can switch weapons before the new one was Equip()'d.
+// DefaultDeploy() won't set the viewmodel without an owner.
+SetViewModel();
+		MDLCACHE_CRITICAL_SECTION();
+		int	idealSequence = vm->SelectWeightedSequence( ideal );
+
+		if ( idealSequence == ACTIVITY_NOT_AVAILABLE )
+			return false;
+
+		//Take the new activity
+		m_IdealActivity	 = ideal;
+		m_nIdealSequence = idealSequence;
+
+		//Find the next sequence in the potential chain of sequences leading to our ideal one
+		int nextSequence = vm->FindTransitionSequence( vm->GetSequence(), m_nIdealSequence, NULL );
+
+		// Don't use transitions when we're deploying
+		if ( ideal != ACT_VM_DRAW && IsWeaponVisible() && nextSequence != m_nIdealSequence )
+		{
+			//Set our activity to the next transitional animation
+			SetActivity( ACT_TRANSITION );
+//			SetSequence( nextSequence );	
+			SendViewModelAnim( nextSequence );
+		}
+		else
+		{
+			//Set our activity to the ideal
+			SetActivity( m_IdealActivity );
+//			SetSequence( m_nIdealSequence );	
+			SendViewModelAnim( m_nIdealSequence );
+		}
+
+		//Set the next time the weapon will idle
+		SetWeaponIdleTime( gpGlobals->curtime + vm->SequenceDuration() );
+		return true;
+	}
+#endif // HOE_WEAPONMODEL_FIX
 	MDLCACHE_CRITICAL_SECTION();
 	int	idealSequence = SelectWeightedSequence( ideal );
 
@@ -2513,6 +2811,180 @@ void CDmgAccumulator::Process( void )
 	m_TargetsDmgInfo.Purge();
 }
 #endif // GAME_DLL
+#ifdef HOE_DLL
+#if 0 // FIXME: define this
+//-----------------------------------------------------------------------------
+bool CBaseCombatWeapon::StartSprinting( void )
+{
+#if defined(HOE_IRONSIGHTS) && !defined(CLIENT_DLL)
+	if ( IsIronSightsActive() )
+		ToggleIronSights();
+#endif
+	return true;
+}
+#endif
+
+//-----------------------------------------------------------------------------
+bool CBaseCombatWeapon::CalcViewModelView( CBaseViewModel *viewmodel, const Vector& preOrigin, const QAngle& preAngles, Vector& origin, QAngle& angles )
+{
+#ifdef HOE_VIEWMODEL_FUDGE
+	// Fudging allows us to change the viewmodel origin without recompiling the viewmodel.
+	// The fudge values are specified in the scripts/weapon_XYZ.txt file.
+	Vector forward, right, up;
+	AngleVectors( preAngles, &forward, &right, &up );
+	Vector offset = GetViewModelFudge_Origin();
+	Vector originFudged = origin + offset.x * right + offset.y * forward + offset.z * up;
+#endif // HOE_VIEWMODEL_FUDGE
+
+#if defined(HOE_IRONSIGHTS) && defined(CLIENT_DLL)
+	if ( IsIronSightsTransitioning() )
+	{
+		float flFrac = (gpGlobals->curtime - m_flIronSightsToggleTime) / IRONSIGHTS_DURATION;
+		flFrac = clamp( flFrac, 0.0f, 1.0f );
+
+		// Interpolate between where we would be if unzoomed and where we should be when zooming.
+		// The unzoomed orientation has bob/lag/shake while the zoomed orientation has none of those.
+		Vector forward, right, up;
+		QAngle anglesZoomed = preAngles + GetIronSights_Angles();
+		AngleVectors( anglesZoomed, &forward, &right, &up );
+		Vector offset = GetIronSights_Origin();
+		Vector originZoomed = origin/*preOrigin*/;
+		if ( GetIronSightsState() == IRONSIGHT_STATE_TO )
+		{
+//			offset *= flFrac;
+//			origin += offset.x * right + offset.y * forward + offset.z * up;
+			originZoomed += offset.x * right + offset.y * forward + offset.z * up;
+#ifdef HOE_VIEWMODEL_FUDGE
+			VectorLerp( originFudged, originZoomed, flFrac, origin );
+#else
+			VectorLerp( origin, originZoomed, flFrac, origin );
+#endif
+			angles = Lerp( flFrac, angles, anglesZoomed );
+		}
+		else
+		{
+//			offset *= 1.0 - flFrac;
+//			origin += offset.x * right + offset.y * forward + offset.z * up;
+			originZoomed += offset.x * right + offset.y * forward + offset.z * up;
+#ifdef HOE_VIEWMODEL_FUDGE
+			VectorLerp( originZoomed, originFudged, flFrac, origin );
+#else
+			VectorLerp( originZoomed, origin, flFrac, origin );
+#endif
+			angles = Lerp( flFrac, anglesZoomed, angles );
+		}
+		return true;
+	}
+	if ( IsIronSightsActive() )
+	{
+		Vector forward, right, up;
+		angles = preAngles + GetIronSights_Angles();
+		AngleVectors( angles, &forward, &right, &up );
+		Vector offset = GetIronSights_Origin();
+		origin += offset.x * right + offset.y * forward + offset.z * up;
+		return true;
+	}
+#endif // HOE_IRONSIGHTS
+#ifdef HOE_VIEWMODEL_FUDGE
+	origin = originFudged;
+	return true;
+#endif
+	return false;
+}
+#endif // HOE_DLL
+
+#ifdef HOE_IRONSIGHTS
+//-----------------------------------------------------------------------------
+bool CBaseCombatWeapon::HasIronSights( void )
+{
+	return GetWpnData().IronSights_Available;
+}
+
+#if !defined(CLIENT_DLL)
+//-----------------------------------------------------------------------------
+bool CBaseCombatWeapon::CanToggleIronSights( void )
+{
+	if ( !hoe_ironsights.GetBool() )
+		return false;
+
+	if ( !HasIronSights() )
+		return false;
+
+	if ( IsIronSightsTransitioning() )
+		 return false;
+
+	if ( m_bInReload )
+		return false;
+
+	if ( m_flNextPrimaryAttack > gpGlobals->curtime ||
+		 m_flNextSecondaryAttack > gpGlobals->curtime )
+		 return false;
+
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+bool CBaseCombatWeapon::ToggleIronSights( void )
+{
+	CBasePlayer *pPlayer = ToBasePlayer( GetOwner() );
+
+	if ( pPlayer == NULL )
+		return false;
+
+	if ( CanToggleIronSights() == false )
+		 return false;
+
+	if ( IsIronSightsActive() )
+	{
+		if ( pPlayer->GetFOVOwner() == this /*GetIronSights_FOV() > 0*/ )
+			(void) pPlayer->SetFOV( this, 0, 0.2f );
+		m_nIronSightsState = IRONSIGHT_STATE_FROM;
+#if defined(HOE_THIRDPERSON)
+		pPlayer->ThirdPersonAimModeSwitch( false );
+#else
+		pPlayer->ShowCrosshair( true );
+#endif
+	}
+	else
+	{
+		if ( GetIronSights_FOV() > 0 )
+			(void) pPlayer->SetFOV( this, GetIronSights_FOV(), 0.2f );
+		m_nIronSightsState = IRONSIGHT_STATE_TO;
+#if defined(HOE_THIRDPERSON)
+		pPlayer->ThirdPersonAimModeSwitch( true );
+#else
+		pPlayer->ShowCrosshair( false );
+#endif
+	}
+	m_flIronSightsToggleTime = gpGlobals->curtime;
+
+	if ( SelectWeightedSequence( ACT_VM_IRONSIGHT_TRANSITION ) == ACTIVITY_NOT_AVAILABLE )
+		SendWeaponAnim( ACT_VM_IDLE_IRONSIGHT );
+	else
+		SendWeaponAnim( ACT_VM_IRONSIGHT_TRANSITION );
+	m_flNextPrimaryAttack = m_flNextSecondaryAttack = gpGlobals->curtime + IRONSIGHTS_DURATION;
+	SetWeaponIdleTime( m_flNextPrimaryAttack );
+
+	return true;
+}
+#endif // !client
+#endif // HOE_IRONSIGHTS
+
+#ifdef HOE_WEAPONMODEL_FIX
+CBaseViewModel *CBaseCombatWeapon::GetViewModelPtr( )
+{
+	CBasePlayer *pOwner = ToBasePlayer( GetOwner() );
+	if ( pOwner == NULL )
+		return NULL;
+	
+	CBaseViewModel *vm = pOwner->GetViewModel( m_nViewModelIndex );
+	if ( vm == NULL )
+		return NULL;
+
+	return vm;
+}
+
+#endif // HOE_WEAPONMODEL_FIX
 
 #if defined( CLIENT_DLL )
 
@@ -2635,6 +3107,11 @@ BEGIN_DATADESC( CBaseCombatWeapon )
 	// Just to quiet classcheck.. this field exists only on the client
 //	DEFINE_FIELD( m_iOldState, FIELD_INTEGER ),
 //	DEFINE_FIELD( m_bJustRestored, FIELD_BOOLEAN ),
+
+#ifdef HOE_IRONSIGHTS
+	DEFINE_FIELD( m_nIronSightsState, FIELD_INTEGER ),
+	DEFINE_FIELD( m_flIronSightsToggleTime, FIELD_TIME ),
+#endif // HOE_IRONSIGHTS
 
 	// Function pointers
 	DEFINE_ENTITYFUNC( DefaultTouch ),
@@ -2773,6 +3250,11 @@ BEGIN_NETWORK_TABLE_NOBASE( CBaseCombatWeapon, DT_LocalWeaponData )
 	SendPropExclude( "DT_AnimTimeMustBeFirst" , "m_flAnimTime" ),
 #endif
 
+#ifdef HOE_IRONSIGHTS
+	SendPropTime( SENDINFO( m_flIronSightsToggleTime ) ),
+	SendPropInt( SENDINFO( m_nIronSightsState ), 2, SPROP_UNSIGNED ),
+#endif // HOE_IRONSIGHTS
+
 #else
 	RecvPropIntWithMinusOneFlag( RECVINFO(m_iClip1 )),
 	RecvPropIntWithMinusOneFlag( RECVINFO(m_iClip2 )),
@@ -2782,6 +3264,10 @@ BEGIN_NETWORK_TABLE_NOBASE( CBaseCombatWeapon, DT_LocalWeaponData )
 	RecvPropInt( RECVINFO( m_nViewModelIndex ) ),
 
 	RecvPropBool( RECVINFO( m_bFlipViewModel ) ),
+#ifdef HOE_IRONSIGHTS
+	RecvPropInt( RECVINFO( m_nIronSightsState ) ),
+	RecvPropTime( RECVINFO( m_flIronSightsToggleTime ) ),
+#endif // HOE_IRONSIGHTS
 
 #endif
 END_NETWORK_TABLE()

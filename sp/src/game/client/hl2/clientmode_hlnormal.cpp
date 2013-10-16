@@ -53,7 +53,14 @@ protected:
 		SetPaintBackgroundEnabled( false );
 	}
 
+#ifdef HOE_DLL
+	virtual void CreateDefaultPanels( void )
+	{
+		AddNewPanel( CreatePanelByName( PANEL_LETTERS ), "PANEL_LETTERS" );
+	}
+#else
 	virtual void CreateDefaultPanels( void ) { /* don't create any panels yet*/ };
+#endif
 };
 
 

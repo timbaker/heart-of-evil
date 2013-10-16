@@ -114,6 +114,10 @@ bool ActivityList_RegisterSharedActivity( const char *pszActivityName, int iActi
 	// technically order isn't dependent, but it's too damn easy to forget to add new ACT_'s to all three lists.
 	static int lastActivityIndex = -1;
 	Assert( iActivityIndex < LAST_SHARED_ACTIVITY && (iActivityIndex == lastActivityIndex + 1 || iActivityIndex == 0) );
+#ifdef HOE_DLL
+	if (!( iActivityIndex < LAST_SHARED_ACTIVITY && (iActivityIndex == lastActivityIndex + 1 || iActivityIndex == 0) ))
+		Msg("%s\n", pszActivityName);
+#endif
 	lastActivityIndex = iActivityIndex;
 
 	// first, check to make sure the slot we're asking for is free. It must be for 
@@ -2270,6 +2274,25 @@ void ActivityList_RegisterSharedActivities( void )
 	REGISTER_SHARED_ACTIVITY( ACT_THROWABLE_VM_IDLE );
 	REGISTER_SHARED_ACTIVITY( ACT_THROWABLE_VM_FIRE );
 
+#ifdef HOE_IRONSIGHTS
+	REGISTER_SHARED_ACTIVITY( ACT_VM_PRIMARYATTACK_IRONSIGHT );
+	REGISTER_SHARED_ACTIVITY( ACT_VM_SECONDARYATTACK_IRONSIGHT );
+	REGISTER_SHARED_ACTIVITY( ACT_VM_IDLE_IRONSIGHT );
+	REGISTER_SHARED_ACTIVITY( ACT_VM_IRONSIGHT_TRANSITION );
+#endif // HOE_IRONSIGHTS
+
+#ifdef HOE_DLL
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_IDLE_OFF );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_START_FAIL );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_START_EMPTY );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_START_READY );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_START );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_IDLE );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_IDLE_HIT );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_ATTACK );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_IDLE_AIM );
+	REGISTER_SHARED_ACTIVITY( ACT_CHAINSAW_RUN );
+#endif // HOE_DLL
 	AssertMsg( g_HighestActivity == LAST_SHARED_ACTIVITY - 1, "Not all activities from ai_activity.h registered in activitylist.cpp" ); 
 } 
 

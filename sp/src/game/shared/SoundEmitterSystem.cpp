@@ -130,6 +130,13 @@ void Hack_FixEscapeChars( char *str )
 	Q_strncpy( str, osave, len );
 }
 
+#if defined(HOE_DLL) && !defined(CLIENT_DLL)
+// When the server sends a closed caption to the client the entity that emitted the caption
+// gets its m_nClosedCaptionID set to this.  If the entity wants to recind the caption later
+// it calls CBaseEntity::RescindClosedCaption.
+short g_nClosedCaptionID = 0;
+#endif // HOE_DLL
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -687,10 +694,22 @@ public:
 
 					Vector playerOrigin = player->GetAbsOrigin();
 
+#ifdef HOE_DLL
+					// Same as sceneentity.cpp
+					if ( AttenuateCaption( lowercase, playerOrigin, originlist ) )
+					{
+						// If the player has a view entity, measure the distance to that
+						if ( !player->GetViewEntity() || AttenuateCaption( lowercase, player->GetViewEntity()->GetAbsOrigin(), originlist ) )
+						{
+							filterCopy.RemoveRecipient( player );
+						}
+					}
+#else // HOE_DLL
 					if ( AttenuateCaption( lowercase, playerOrigin, originlist ) )
 					{
 						filterCopy.RemoveRecipient( player );
 					}
+#endif // HOE_DLL
 				}
 			}
 		}
@@ -730,6 +749,10 @@ public:
 			// Send caption and duration hint down to client
 			UserMessageBegin( filterCopy, "CloseCaption" );
 				WRITE_STRING( lowercase );
+#ifdef HOE_DLL
+				WRITE_STRING( pActor ? STRING(pActor->GetCCImageName()) : "" );
+				WRITE_SHORT( pActor ? (pActor->m_nClosedCaptionID = ++g_nClosedCaptionID) : 0 );
+#endif // HOE_DLL
 				WRITE_SHORT( MIN( 255, (int)( duration * 10.0f ) ) ),
 				WRITE_BYTE( byteflags ),
 			MessageEnd();
@@ -738,7 +761,12 @@ public:
 			CHudCloseCaption *cchud = GET_HUDELEMENT( CHudCloseCaption );
 			if ( cchud )
 			{
+#ifdef HOE_DLL
+				CBaseEntity *pActor = CBaseEntity::Instance( entindex );
+				cchud->ProcessCaption( lowercase, pActor ? STRING(pActor->GetCCImageName()) : "", duration, fromplayer );
+#else // HOE_DLL
 				cchud->ProcessCaption( lowercase, duration, fromplayer );
+#endif // HOE_DLL
 			}
 #endif
 		}
@@ -1377,7 +1405,18 @@ void UTIL_EmitAmbientSound( int entindex, const Vector &vecOrigin, const char *s
 
 	if (samp && *samp == '!')
 	{
+#if defined(HOE_DLL) && !defined(CLIENT_DLL)
+		int sentenceIndex;
+		// !! means pick a random sentence from the specified group
+		if ( samp[1] == '!' )
+		{
+			sentenceIndex = SENTENCEG_PickRndSz( samp + 2 );
+		}
+		else
+			sentenceIndex = SENTENCEG_Lookup(samp);
+#else
 		int sentenceIndex = SENTENCEG_Lookup(samp);
+#endif
 		if (sentenceIndex >= 0)
 		{
 			char name[32];
@@ -1389,11 +1428,36 @@ void UTIL_EmitAmbientSound( int entindex, const Vector &vecOrigin, const char *s
 #endif
 			if ( duration )
 			{
+#ifdef HOE_DLL
+				*duration = engine->SentenceLength( sentenceIndex );
+#else
 				*duration = enginesound->GetSoundDuration( name );
+#endif
 			}
 
 			g_SoundEmitterSystem.TraceEmitSound( "UTIL_EmitAmbientSound:  Sentence emitted '%s' (ent %i)\n",
 				name, entindex );
+
+#if defined(HOE_DLL) && !defined(CLIENT_DLL)
+			bool needsCC = !( fFlags & ( SND_STOP | SND_CHANGE_VOL | SND_CHANGE_PITCH ) );
+
+			// We only want to trigger the CC on the start of the sound, not on any changes or halting of the sound
+			if ( needsCC )
+			{
+				extern const char *HOE_SentenceCaptionFromIndex( int sentenceIndex );
+				const char *caption = HOE_SentenceCaptionFromIndex( sentenceIndex );
+				if ( caption && caption[0] )
+				{
+					CRecipientFilter filter;
+					filter.AddAllPlayers();
+					filter.MakeReliable();
+ 
+					CUtlVector<Vector> dummy;
+					float soundduration = duration ? *duration : engine->SentenceLength( sentenceIndex );
+					CBaseEntity::EmitCloseCaption( filter, entindex, caption, dummy, soundduration );
+				}
+			}
+#endif // HOE_DLL
 		}
 	}
 	else

@@ -62,6 +62,9 @@ IMPLEMENT_SERVERCLASS_ST(CRagdollProp, DT_Ragdoll)
 	SendPropEHandle(SENDINFO( m_hUnragdoll ) ),
 	SendPropFloat(SENDINFO(m_flBlendWeight), 8, SPROP_ROUNDDOWN, 0.0f, 1.0f ),
 	SendPropInt(SENDINFO(m_nOverlaySequence), 11),
+#ifdef HOE_DLL
+	SendPropEHandle(SENDINFO(m_hCopyDecalsFromThisEnt)),
+#endif
 END_SEND_TABLE()
 
 #define DEFINE_RAGDOLL_ELEMENT( i ) \
@@ -82,6 +85,9 @@ BEGIN_DATADESC(CRagdollProp)
 	DEFINE_FIELD( m_hKiller, FIELD_EHANDLE ),
 
 	DEFINE_KEYFIELD( m_bStartDisabled, FIELD_BOOLEAN, "StartDisabled" ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_iszInitialPose, FIELD_STRING, "InitialPose" ),
+#endif // HOE_DLL
 
 	DEFINE_INPUTFUNC( FIELD_VOID, "StartRagdollBoogie", InputStartRadgollBoogie ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "EnableMotion", InputEnableMotion ),
@@ -141,6 +147,11 @@ BEGIN_DATADESC(CRagdollProp)
 	DEFINE_RAGDOLL_ELEMENT( 22 ),
 	DEFINE_RAGDOLL_ELEMENT( 23 ),
 
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_bloodColor, FIELD_INTEGER ),
+	DEFINE_AUTO_ARRAY( m_bRemovedBones, FIELD_BOOLEAN ),
+#endif // HOE_DLL
+
 END_DATADESC()
 
 //-----------------------------------------------------------------------------
@@ -173,8 +184,25 @@ void CRagdollProp::Spawn( void )
 		m_flFadeScale = m_flDefaultFadeScale;
 	}
 
+#ifdef HOE_DLL
+	if ( m_iszInitialPose != NULL_STRING )
+	{
+		int iSeq = LookupSequence( STRING(m_iszInitialPose) );
+		if ( iSeq != ACT_INVALID )
+		{
+			InvalidateBoneCache();
+			SetEffects( EF_NOINTERP );
+			SetSequence( iSeq );
+			SetCycle( 0.0f );
+		}
+	}
+#endif // HOE_DLL
 	matrix3x4_t pBoneToWorld[MAXSTUDIOBONES];
 	BaseClass::SetupBones( pBoneToWorld, BONE_USED_BY_ANYTHING ); // FIXME: shouldn't this be a subset of the bones
+#ifdef HOE_DLL
+	if ( m_iszInitialPose != NULL_STRING )
+		RemoveEffects( EF_NOINTERP );
+#endif // HOE_DLL
 	// this is useless info after the initial conditions are set
 	SetAbsAngles( vec3_angle );
 	int collisionGroup = (m_spawnflags & SF_RAGDOLLPROP_DEBRIS) ? COLLISION_GROUP_DEBRIS : COLLISION_GROUP_NONE;
@@ -235,6 +263,10 @@ void CRagdollProp::OnRestore()
 	if ( !m_ragdoll.listCount )
 		return;
 
+#ifdef HOE_DLL
+	RestoreRemovedBones();
+#endif // HOE_DLL
+
 	// JAY: Reset collision relationships
 	RagdollSetupCollisions( m_ragdoll, modelinfo->GetVCollide( GetModelIndex() ), GetModelIndex() );
 	VPhysicsUpdate( VPhysicsGetObject() );
@@ -242,8 +274,52 @@ void CRagdollProp::OnRestore()
 
 void CRagdollProp::CalcRagdollSize( void )
 {
+#ifdef HOE_DLL
+	/* I copied all this from VPhysicsUpdate.  Without it a prop_ragdoll that starts
+	 * asleep does not have its collision bounds set properly (see this using the
+	 * "picker" command).  That might result in the ragdoll's shadow not being
+	 * drawn.  Also there was some ASSERTs being hit in CCollisionProperty::WorldSpaceSurroundingBounds
+	 * when restoring a savefile with a start-asleep prop_ragdoll.
+	 */
+	Vector vecFullMins, vecFullMaxs;
+	vecFullMins = m_ragPos[0];
+	vecFullMaxs = m_ragPos[0];
+	for ( int i = 0; i < m_ragdoll.listCount; i++ )
+	{
+		Vector mins, maxs;
+		matrix3x4_t update;
+		if ( !m_ragdoll.list[i].pObject )
+		{
+			m_ragdollMins[i].Init();
+			m_ragdollMaxs[i].Init();
+			continue;
+		}
+		m_ragdoll.list[i].pObject->GetPositionMatrix( &update );
+		TransformAABB( update, m_ragdollMins[i], m_ragdollMaxs[i], mins, maxs );
+		for ( int j = 0; j < 3; j++ )
+		{
+			if ( mins[j] < vecFullMins[j] )
+			{
+				vecFullMins[j] = mins[j];
+			}
+			if ( maxs[j] > vecFullMaxs[j] )
+			{
+				vecFullMaxs[j] = maxs[j];
+			}
+		}
+	}
+
+//	SetAbsOrigin( m_ragPos[0] );
+//	SetAbsAngles( vec3_angle );
+	const Vector &vecOrigin = CollisionProp()->GetCollisionOrigin();
+	CollisionProp()->AddSolidFlags( FSOLID_FORCE_WORLD_ALIGNED );
+	CollisionProp()->SetSurroundingBoundsType( USE_COLLISION_BOUNDS_NEVER_VPHYSICS );
+	SetCollisionBounds( vecFullMins - vecOrigin, vecFullMaxs - vecOrigin );
+	CollisionProp()->MarkSurroundingBoundsDirty();
+#else // HOE_DLL
 	CollisionProp()->SetSurroundingBoundsType( USE_HITBOXES );
 	CollisionProp()->RemoveSolidFlags( FSOLID_FORCE_WORLD_ALIGNED );
+#endif // HOE_DLL
 }
 
 void CRagdollProp::UpdateOnRemove( void )
@@ -275,6 +351,10 @@ CRagdollProp::CRagdollProp( void )
 	m_allAsleep = false;
 	m_flFadeScale = 1;
 	m_flDefaultFadeScale = 1;
+#ifdef HOE_DLL
+	SetBloodColor( DONT_BLEED );
+	memset( m_bRemovedBones, 0, sizeof(m_bRemovedBones) );
+#endif // HOE_DLL
 }
 
 CRagdollProp::~CRagdollProp( void )
@@ -817,6 +897,11 @@ void CRagdollProp::TraceAttack( const CTakeDamageInfo &info, const Vector &dir, 
 {
 	if ( ptr->physicsbone >= 0 && ptr->physicsbone < m_ragdoll.listCount )
 	{
+#ifdef HOE_DLL
+		// FIXME: gotta fix the trace to not hit this physobj
+		if ( m_bRemovedBones[ ptr->physicsbone ] )
+			return;
+#endif // HOE_DLL
 		VPhysicsSwapObject( m_ragdoll.list[ptr->physicsbone].pObject );
 	}
 	BaseClass::TraceAttack( info, dir, ptr, pAccumulator );
@@ -1052,6 +1137,11 @@ void CRagdollProp::VPhysicsUpdate( IPhysicsObject *pPhysics )
 	CollisionProp()->SetSurroundingBoundsType( USE_COLLISION_BOUNDS_NEVER_VPHYSICS );
 	SetCollisionBounds( vecFullMins - vecOrigin, vecFullMaxs - vecOrigin );
 	CollisionProp()->MarkSurroundingBoundsDirty();
+
+#ifdef HOE_DLLxxx
+	void RagdollMovedWrapper( void *ragdoll, const Vector &origin );
+	RagdollMovedWrapper( this, m_ragPos[0] );
+#endif // HOE_DLL
 
 	PhysicsTouchTriggers();
 }
@@ -1301,6 +1391,12 @@ CBaseEntity *CreateServerRagdoll( CBaseAnimating *pAnimating, int forceBone, con
 	CRagdollProp *pRagdoll = (CRagdollProp *)CBaseEntity::CreateNoSpawn( "prop_ragdoll", pAnimating->GetAbsOrigin(), vec3_angle, NULL );
 	pRagdoll->CopyAnimationDataFrom( pAnimating );
 	pRagdoll->SetOwnerEntity( pAnimating );
+
+#ifdef HOE_DLL
+	pRagdoll->m_hCopyDecalsFromThisEnt = pAnimating;
+
+	pRagdoll->SetBloodColor( pAnimating->BloodColor() );
+#endif
 
 	pRagdoll->InitRagdollAnimation();
 	matrix3x4_t pBoneToWorld[MAXSTUDIOBONES], pBoneToWorldNext[MAXSTUDIOBONES];
@@ -1711,3 +1807,49 @@ void Ragdoll_GetAngleOverrideString( char *pOut, int size, CBaseEntity *pEntity 
 		pRagdoll->GetAngleOverrideFromCurrentState( pOut, size );
 	}
 }
+
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CRagdollProp::RemoveBone( const char *szBone )
+{
+	int bone = LookupBone( szBone );
+	Assert( bone != -1 );
+	if ( bone == -1 )
+		return;
+
+	int physBone = GetPhysicsBone( bone );
+	Assert( physBone < m_ragdoll.listCount );
+	if ( physBone >= m_ragdoll.listCount )
+		return;
+
+	IPhysicsObject *pPhysics = m_ragdoll.list[ physBone ].pObject;
+	Assert( pPhysics != NULL );
+
+	// We can't actually remove the bone because we have no control over the IPhysicsCollisionSet.
+	if ( pPhysics )
+	{
+		pPhysics->EnableCollisions( false );
+		pPhysics->EnableDrag( false );
+		pPhysics->EnableGravity( false );
+		
+		pPhysics->SetContents( CONTENTS_EMPTY );
+		pPhysics->RecheckCollisionFilter();
+	}
+
+	// Remember this bone was removed so we can remove it again when the ragdoll is restored.
+	m_bRemovedBones[ physBone ] = true;
+}
+
+//-----------------------------------------------------------------------------
+void CRagdollProp::RestoreRemovedBones( void )
+{
+	for ( int i = 0; i < m_ragdoll.listCount; i++ )
+	{
+		IPhysicsObject *pPhysics = m_ragdoll.list[ i ].pObject;
+		if ( m_bRemovedBones[ i ] && pPhysics )
+		{
+		}
+	}
+}
+
+#endif // HOE_DLL

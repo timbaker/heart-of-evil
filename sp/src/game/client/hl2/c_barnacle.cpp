@@ -206,7 +206,78 @@ void C_NPC_Barnacle::StandardBlendingRules( CStudioHdr *hdr, Vector pos[], Quate
 
 	if ( !hdr )
 		return;
+#ifdef HOE_DLL
+	static int tongueBones[BARNACLE_TONGUE_POINTS + 1] = {-1};
+	if ( tongueBones[0] == -1 )
+	{
+		// studiomdl rearranges the bones for some reason, so get the indices explicitly
+		tongueBones[0] = Studio_BoneIndexByName( hdr, "Barnacle.tongue1" );
+		tongueBones[1] = Studio_BoneIndexByName( hdr, "Barnacle.tongue2" );
+		tongueBones[2] = Studio_BoneIndexByName( hdr, "Barnacle.tongue3" );
+		tongueBones[3] = Studio_BoneIndexByName( hdr, "Barnacle.tongue4" );
+		tongueBones[4] = Studio_BoneIndexByName( hdr, "Barnacle.tongue5" );
+		tongueBones[5] = Studio_BoneIndexByName( hdr, "Barnacle.tongue6" );
+		tongueBones[6] = Studio_BoneIndexByName( hdr, "Barnacle.tongue7" );
+		tongueBones[7] = Studio_BoneIndexByName( hdr, "Barnacle.tongue8" );
+	}
 
+	Vector vecPrevRight;
+	GetVectors( NULL, &vecPrevRight, NULL );
+
+	Vector vecPrev = pos[Studio_BoneIndexByName( hdr, "Barnacle.tongueroot" )];
+
+	// The previous line returns a wildly bogus value, possibly because
+	// the bone isn't part of the envelope?
+	// These values match those in the SMD file.
+	vecPrev = Vector(0.000000, 0.000000, 1.171719); 
+
+	Vector vecCurr = vec3_origin;
+	Vector vecForward;
+	for ( int i = 0; i <= BARNACLE_TONGUE_POINTS; i++ )
+	{
+		// We double up the bones at the last node.
+		if ( i == BARNACLE_TONGUE_POINTS )
+		{
+			vecCurr = m_TonguePhysics.GetLastNode()->m_vPos;
+		}
+		else
+		{
+			vecCurr = m_TonguePhysics.GetNode(i)->m_vPos;
+		}
+
+		//debugoverlay->AddBoxOverlay( vecCurr, -Vector(2,2,2), Vector(2,2,2), vec3_angle, 0,255,0, 128, 0.1 );
+
+		// Fill out the positions in local space
+		VectorITransform( vecCurr, EntityToWorldTransform(), pos[tongueBones[i]] );
+		vecCurr = pos[tongueBones[i]];
+
+		// Disallow twist in the tongue visually
+		// Forward vector has to follow the tongue, right + up have to minimize twist from
+		// the previous bone
+
+		// Fill out the angles
+		if ( i != BARNACLE_TONGUE_POINTS )
+		{
+			vecForward = (vecCurr - vecPrev);
+			if ( VectorNormalize( vecForward ) < 1e-3 )
+			{
+				vecForward.Init( 0, 0, 1 );
+			}
+		}
+
+		// Project the previous vecRight into a plane perpendicular to vecForward
+		// that's the vector closest to what we want...
+		Vector vecRight, vecUp;
+		VectorMA( vecPrevRight, -DotProduct( vecPrevRight, vecForward ), vecForward, vecRight );
+		VectorNormalize( vecRight );
+		CrossProduct( vecForward, vecRight, vecUp );
+
+		BasisToQuaternion( vecForward, vecRight, vecUp, q[tongueBones[i]] );
+
+		vecPrev = vecCurr;
+		vecPrevRight = vecRight;
+	}
+#else // !HOE_DLL
 	int firstBone = Studio_BoneIndexByName( hdr, "Barnacle.tongue1" );
 
 	Vector vecPrevRight;
@@ -259,6 +330,7 @@ void C_NPC_Barnacle::StandardBlendingRules( CStudioHdr *hdr, Vector pos[], Quate
 		vecPrev = vecCurr;
 		vecPrevRight = vecRight;
 	}
+#endif // !HOE_DLL
 }
 
 //===============================================================================================================================
@@ -284,6 +356,11 @@ void C_NPC_Barnacle::ComputeVisualTipPoint( Vector *pTip )
 {
 	float flTipMove = TIP_SNAP_FACTOR * gpGlobals->frametime;
 	Vector tipIdeal;
+#ifdef HOE_THIRDPERSON
+	if ( C_BasePlayer::ShouldDrawLocalPlayer() == true ) // FIXME: whose our victim?
+		tipIdeal = m_vecTip;
+	else
+#endif
 	VectorAdd(m_vecTip, m_vecTipDrawOffset, tipIdeal);
 	if ( tipIdeal.DistToSqr( m_vecTipPrevious ) > (flTipMove * flTipMove) )
 	{

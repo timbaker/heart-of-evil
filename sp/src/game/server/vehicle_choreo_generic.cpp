@@ -20,6 +20,14 @@
 #include "vehicle_choreo_generic_shared.h"
 #include "ai_utils.h"
 
+#ifdef HOE_DLL
+#include "animation.h"
+#include "collisionutils.h"
+#define HOE_PVCG_WITH_NPCS
+#include "BaseAnimatingOverlay.h"
+#include "ai_basenpc.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -89,7 +97,11 @@ class CChoreoGenericServerVehicle : public CBaseServerVehicle
 public:
 	void GetVehicleViewPosition( int nRole, Vector *pAbsOrigin, QAngle *pAbsAngles, float *pFOV = NULL );
 	virtual void ItemPostFrame( CBasePlayer *pPlayer );
-
+#ifdef HOE_DLL
+	virtual bool IsPassengerUsingStandardWeapons( int nRole );
+	virtual bool PlayerEntryExitAffectsSound( void );
+	virtual void ParseEntryExitAnims( void );
+#endif
 protected:
 
 	CPropVehicleChoreoGeneric *GetVehicle( void );
@@ -99,7 +111,11 @@ protected:
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
+#ifdef HOE_PVCG_WITH_NPCS
+class CPropVehicleChoreoGeneric : public CDynamicProp, public IDrivableVehicle, public INPCPassengerCarrier
+#else
 class CPropVehicleChoreoGeneric : public CDynamicProp, public IDrivableVehicle
+#endif
 {
 	DECLARE_CLASS( CPropVehicleChoreoGeneric, CDynamicProp );
 
@@ -121,6 +137,9 @@ public:
 	// CBaseEntity
 	virtual void	Precache( void );
 	void			Spawn( void );
+#ifdef HOE_PVCG_WITH_NPCS
+	void			OnRestore( void );
+#endif
 	void			Think(void);
 	virtual int		ObjectCaps( void ) { return BaseClass::ObjectCaps() | FCAP_IMPULSE_USE; };
 	virtual void	Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
@@ -156,11 +175,21 @@ public:
 	void InputEnterVehicleImmediate( inputdata_t &inputdata );
 	void InputEnterVehicle( inputdata_t &inputdata );
 	void InputExitVehicle( inputdata_t &inputdata );
+#ifdef HOE_DLL
+	void InputExitVehicleImmediate( inputdata_t &inputdata );
+#endif
 	void InputLock( inputdata_t &inputdata );
 	void InputUnlock( inputdata_t &inputdata );
 	void InputOpen( inputdata_t &inputdata );
 	void InputClose( inputdata_t &inputdata );
 	void InputViewlock( inputdata_t &inputdata );
+
+#ifdef HOE_DLL
+	virtual bool IsPassengerUsingStandardWeapons( int nRole ) { return false; }
+	virtual bool PlayerEntryExitAffectsSound( void ) { return true; }
+	virtual void PreParseEntryExitAnims( void ) {};
+	virtual void PostParseEntryExitAnims( void ) {};
+#endif
 
 	bool ShouldIgnoreParent( void ) { return m_bIgnoreMoveParent; }
 
@@ -201,6 +230,22 @@ public:
 
 	bool				m_bForcePlayerEyePoint;			// Uses player's eyepoint instead of 'vehicle_driver_eyes' attachment
 
+#ifdef HOE_PVCG_WITH_NPCS
+	// INPCPassengerCarrier
+	virtual bool	NPC_CanEnterVehicle( CAI_BaseNPC *pPassenger, bool bCompanion );
+	virtual bool	NPC_CanExitVehicle( CAI_BaseNPC *pPassenger, bool bCompanion );
+	virtual bool	NPC_AddPassenger( CAI_BaseNPC *pPassenger, string_t strRoleName, int nSeatID );
+	virtual bool 	NPC_RemovePassenger( CAI_BaseNPC *pPassenger );
+	virtual void	NPC_FinishedEnterVehicle( CAI_BaseNPC *pPassenger, bool bCompanion )
+	{
+		m_npcOn.FireOutput( pPassenger, this );
+	}
+	virtual void	NPC_FinishedExitVehicle( CAI_BaseNPC *pPassenger, bool bCompanion )
+	{
+		m_npcOff.FireOutput( pPassenger, this );
+	}
+#endif
+
 protected:
 
 	// Contained IServerVehicle
@@ -222,6 +267,10 @@ private:
 
 	COutputEvent		m_playerOn;
 	COutputEvent		m_playerOff;
+#ifdef HOE_PVCG_WITH_NPCS
+	COutputEvent		m_npcOn;
+	COutputEvent		m_npcOff;
+#endif
 	COutputEvent		m_OnOpen;
 	COutputEvent		m_OnClose;
 };
@@ -236,6 +285,9 @@ BEGIN_DATADESC( CPropVehicleChoreoGeneric )
 	DEFINE_INPUTFUNC( FIELD_VOID, "EnterVehicle", InputEnterVehicle ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "EnterVehicleImmediate", InputEnterVehicleImmediate ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "ExitVehicle", InputExitVehicle ),
+#ifdef HOE_DLL
+	DEFINE_INPUTFUNC( FIELD_VOID, "ExitVehicleImmediate", InputExitVehicleImmediate ),
+#endif
 	DEFINE_INPUTFUNC( FIELD_VOID, "Open", InputOpen ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "Close", InputClose ),
 	DEFINE_INPUTFUNC( FIELD_BOOLEAN, "Viewlock", InputViewlock ),
@@ -258,6 +310,10 @@ BEGIN_DATADESC( CPropVehicleChoreoGeneric )
 
 	DEFINE_OUTPUT( m_playerOn, "PlayerOn" ),
 	DEFINE_OUTPUT( m_playerOff, "PlayerOff" ),
+#ifdef HOE_PVCG_WITH_NPCS
+	DEFINE_OUTPUT( m_npcOn, "OnNPCFinishedEnter" ),
+	DEFINE_OUTPUT( m_npcOff, "OnNPCFinishedExit" ),
+#endif
 	DEFINE_OUTPUT( m_OnOpen, "OnOpen" ),
 	DEFINE_OUTPUT( m_OnClose, "OnClose" ),
 
@@ -609,6 +665,9 @@ void CPropVehicleChoreoGeneric::EnterVehicle( CBaseCombatCharacter *pPassenger )
 		m_hPlayer = pPlayer;
 		m_playerOn.FireOutput( pPlayer, this, 0 );
 
+#ifdef HOE_DLL
+		if ( PlayerEntryExitAffectsSound() )
+#endif
 		m_ServerVehicle.SoundStart();
 	}
 	else
@@ -643,6 +702,9 @@ void CPropVehicleChoreoGeneric::ExitVehicle( int nRole )
 	m_playerOff.FireOutput( pPlayer, this, 0 );
 	m_bEnterAnimOn = false;
 
+#ifdef HOE_DLL
+	if ( PlayerEntryExitAffectsSound() )
+#endif
 	m_ServerVehicle.SoundShutdown( 1.0 );
 }
 
@@ -655,6 +717,32 @@ void CPropVehicleChoreoGeneric::ResetUseKey( CBasePlayer *pPlayer )
 	pPlayer->m_afButtonPressed &= ~IN_USE;
 }
 
+#ifdef HOE_PVCG_WITH_NPCS
+//-----------------------------------------------------------------------------
+// Purpose: Do extra fix-up after restore
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoGeneric::OnRestore( void )
+{
+	BaseClass::OnRestore();
+
+	// NOTE: This is necessary to prevent overflow of datatables on level transition
+	// since the last exit eyepoint in the last level will have been fixed up
+	// based on the level landmarks, resulting in a position that lies outside
+	// typical map coordinates. If we're not in the middle of an exit anim, the
+	// eye exit endpoint field isn't being used at all.
+	if ( !m_bExitAnimOn )
+	{
+		m_vecEyeExitEndpoint = GetAbsOrigin();
+	}
+
+	IServerVehicle *pServerVehicle = GetServerVehicle();
+	if ( pServerVehicle != NULL )
+	{
+		// Restore the passenger information we're holding on to
+		pServerVehicle->RestorePassengerInfo();
+	}
+}
+#endif // HOE_PVCG_WITH_NPCS
 
 //-----------------------------------------------------------------------------
 // Purpose: Vehicles are permanently oriented off angle for vphysics.
@@ -775,6 +863,22 @@ void CPropVehicleChoreoGeneric::InputExitVehicle( inputdata_t &inputdata )
 	m_bForcedExit = true;
 }
 
+#ifdef HOE_DLL
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoGeneric::InputExitVehicleImmediate( inputdata_t &inputdata )
+{
+	CBasePlayer *pPlayer = m_hPlayer;
+	if ( !pPlayer )
+		return;
+
+	if ( !CanExitVehicle( pPlayer ) )
+		return;
+
+	pPlayer->LeaveVehicle( pPlayer->GetAbsOrigin(), pPlayer->GetAbsAngles() );
+	ExitVehicle( VEHICLE_ROLE_DRIVER );
+}
+#endif
+
 //-----------------------------------------------------------------------------
 // Purpose: Parses the vehicle's script for the vehicle view parameters
 //-----------------------------------------------------------------------------
@@ -805,6 +909,72 @@ bool CPropVehicleChoreoGeneric::ParseViewParams( const char *pScriptName )
 
 	return true;
 }
+
+#ifdef HOE_PVCG_WITH_NPCS
+//=============================================================================
+// Passenger carrier
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : *pPassenger - 
+//			bCompanion - 
+// Output : Returns true on success, false on failure.
+//-----------------------------------------------------------------------------
+bool CPropVehicleChoreoGeneric::NPC_CanEnterVehicle( CAI_BaseNPC *pPassenger, bool bCompanion )
+{
+	// Always allowed unless a leaf class says otherwise
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : *pPassenger - 
+//			bCompanion - 
+// Output : Returns true on success, false on failure.
+//-----------------------------------------------------------------------------
+bool CPropVehicleChoreoGeneric::NPC_CanExitVehicle( CAI_BaseNPC *pPassenger, bool bCompanion )
+{
+	// Always allowed unless a leaf class says otherwise
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : *pPassenger - 
+//			bCompanion - 
+// Output : Returns true on success, false on failure.
+//-----------------------------------------------------------------------------
+bool CPropVehicleChoreoGeneric::NPC_AddPassenger( CAI_BaseNPC *pPassenger, string_t strRoleName, int nSeatID )
+{
+	// Must be allowed to enter
+	if ( NPC_CanEnterVehicle( pPassenger, true /*FIXME*/ ) == false )
+		return false;
+
+	IServerVehicle *pVehicleServer = GetServerVehicle();
+	if ( pVehicleServer != NULL )
+		return pVehicleServer->NPC_AddPassenger( pPassenger, strRoleName, nSeatID );
+
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: 
+// Input  : *pPassenger - 
+//			bCompanion - 
+//-----------------------------------------------------------------------------
+bool CPropVehicleChoreoGeneric::NPC_RemovePassenger( CAI_BaseNPC *pPassenger )
+{
+	// Must be allowed to exit
+	if ( NPC_CanExitVehicle( pPassenger, true /*FIXME*/ ) == false )
+		return false;
+
+	IServerVehicle *pVehicleServer = GetServerVehicle();
+	if ( pVehicleServer != NULL )
+		return pVehicleServer->NPC_RemovePassenger( pPassenger );
+
+	return true;
+}
+#endif // HOE_PVCG_WITH_NPCS
 
 //========================================================================================================================================
 // CRANE VEHICLE SERVER VEHICLE
@@ -895,6 +1065,25 @@ void CChoreoGenericServerVehicle::GetVehicleViewPosition( int nRole, Vector *pAb
 	MatrixGetColumn( newCameraToWorld, 3, *pAbsOrigin );
 }
 
+#ifdef HOE_DLL
+bool CChoreoGenericServerVehicle::IsPassengerUsingStandardWeapons( int nRole )
+{
+	return GetVehicle()->IsPassengerUsingStandardWeapons( nRole );
+}
+
+bool CChoreoGenericServerVehicle::PlayerEntryExitAffectsSound( void )
+{
+	return GetVehicle()->PlayerEntryExitAffectsSound();
+}
+
+void CChoreoGenericServerVehicle::ParseEntryExitAnims( void )
+{
+	GetVehicle()->PreParseEntryExitAnims();
+	BaseClass::ParseEntryExitAnims();
+	GetVehicle()->PostParseEntryExitAnims();
+}
+#endif // HOE_DLL
+
 bool CPropVehicleChoreoGeneric::ShouldCollide( int collisionGroup, int contentsMask ) const
 {
 	if ( m_bIgnorePlayerCollisions == true )
@@ -981,3 +1170,531 @@ void CVehicleChoreoViewParser::SetDefaults( void *pData )
 	pView->flPitchMax = CHOREO_VEHICLE_VIEW_PITCH_MAX;
 
 }
+
+
+#ifdef HOE_DLL
+class CPropVehicleChoreoTruck : public CPropVehicleChoreoGeneric
+{
+public:
+	DECLARE_CLASS( CPropVehicleChoreoTruck, CPropVehicleChoreoGeneric );
+	DECLARE_DATADESC();
+	DECLARE_SERVERCLASS();
+
+	virtual bool IsPassengerUsingStandardWeapons( int nRole ) { return m_bUsingStandardWeapons; }
+	virtual bool PlayerEntryExitAffectsSound( void ) { return false; }
+	virtual void PreParseEntryExitAnims( void );
+	virtual void PostParseEntryExitAnims( void );
+
+	void Spawn( void );
+	void Precache( void );
+	void Activate( void );
+	void Think( void );
+	void ItemPostFrame( CBasePlayer *pPlayer );
+	void EnterVehicle( CBaseCombatCharacter *pPassenger );
+	bool CanExitVehicle( CBaseEntity *pEntity );
+
+	int FindEntryHitbox( const Vector &vecEyePoint );
+	virtual void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
+
+	void PlayLoopingSound( const char *pSoundName );
+	void PlaySound( const char *pSoundName );
+	void StopLoopingSound( float fadeTime = 0.25f );
+	void EmitPlayerUseSound( void ) { /* nothing */ }
+
+	CSoundPatch *m_pStateSound;
+	CSoundPatch *m_pStateSoundFade;
+
+	void InputOpenDriverDoor( inputdata_t &inputdata );
+	void InputCloseDriverDoor( inputdata_t &inputdata );
+	void InputPassengerOpenVehicle( inputdata_t &inputdata );
+	void InputPassengerCloseVehicle( inputdata_t &inputdata );
+	void InputUnlockDriverSideExit( inputdata_t &inputdata );
+	void InputVehicleSound( inputdata_t &inputdata );
+
+	COutputEvent m_driverDoorOpen;
+	COutputEvent m_driverDoorClosed;
+	COutputEvent m_PlayerAttemptedDriverEntry;
+
+	struct FakeAnimation_t
+	{
+		bool bRunning;
+		float flStartTime;
+		float flDuration;
+		int iPoseParameter;
+		bool bReverse;
+	};
+
+	FakeAnimation_t	m_animLean;
+	FakeAnimation_t	m_animDriverDoor;
+	bool			m_bPlayerLeaning;
+	
+	CNetworkVar( bool, m_bUsingStandardWeapons );
+
+	bool			m_bDriverSideExitLocked;
+
+	vehicleparams_t m_VehicleParams;
+};
+
+BEGIN_DATADESC( CPropVehicleChoreoTruck )
+	DEFINE_FIELD( m_animLean.bRunning, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_animLean.flStartTime, FIELD_TIME ),
+	DEFINE_FIELD( m_animLean.flDuration, FIELD_FLOAT ),
+	DEFINE_FIELD( m_animLean.bReverse, FIELD_BOOLEAN ),
+
+	DEFINE_FIELD( m_animDriverDoor.bRunning, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_animDriverDoor.flStartTime, FIELD_TIME ),
+	DEFINE_FIELD( m_animDriverDoor.flDuration, FIELD_FLOAT ),
+	DEFINE_FIELD( m_animDriverDoor.bReverse, FIELD_BOOLEAN ),
+
+	DEFINE_FIELD( m_bPlayerLeaning, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_bUsingStandardWeapons, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_bDriverSideExitLocked, FIELD_BOOLEAN ),
+
+	DEFINE_INPUTFUNC( FIELD_VOID, "OpenDriverDoor", InputOpenDriverDoor ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "CloseDriverDoor", InputCloseDriverDoor ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "PassengerOpenVehicle", InputPassengerOpenVehicle ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "PassengerCloseVehicle", InputPassengerCloseVehicle ),
+	DEFINE_INPUTFUNC( FIELD_STRING, "VehicleSound", InputVehicleSound ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "UnlockDriverSideExit", InputUnlockDriverSideExit ),
+
+	DEFINE_OUTPUT( m_driverDoorOpen, "OnDriverDoorOpen" ),
+	DEFINE_OUTPUT( m_driverDoorClosed, "OnDriverDoorClosed" ),
+	DEFINE_OUTPUT( m_PlayerAttemptedDriverEntry, "OnPlayerAttemptedDriverEntry" ),
+END_DATADESC()
+
+IMPLEMENT_SERVERCLASS_ST(CPropVehicleChoreoTruck, DT_PropVehicleChoreoTruck)
+	SendPropBool(SENDINFO(m_bUsingStandardWeapons)),
+END_SEND_TABLE();
+
+LINK_ENTITY_TO_CLASS( prop_vehicle_choreo_truck, CPropVehicleChoreoTruck );
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::Spawn( void )
+{
+	BaseClass::Spawn();
+
+	// FIXME: create a non-driveable-vehicle model
+	SetPoseParameter( "vehicle_wheel_fl_height", 0.5 );
+	SetPoseParameter( "vehicle_wheel_fr_height", 0.5 );
+	SetPoseParameter( "vehicle_wheel_rl_height", 0.5 );
+	SetPoseParameter( "vehicle_wheel_rr_height", 0.5 );
+
+	// The player can't exit through the driver-side door except on namd1.
+	m_bDriverSideExitLocked = true;
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::Precache( void )
+{
+	BaseClass::Precache();
+
+	PrecacheScriptSound( "Truck.DoorStartOpen" );
+	PrecacheScriptSound( "Truck.DoorEndOpen" );
+	PrecacheScriptSound( "Truck.DoorStartClose" );
+	PrecacheScriptSound( "Truck.DoorEndClose" );
+
+	PhysFindOrAddVehicleScript( STRING(GetVehicleScriptName()), &m_VehicleParams, NULL );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::Activate( void )
+{
+	BaseClass::Activate();
+
+	m_animLean.iPoseParameter = LookupPoseParameter( "player_lean" );
+	m_animLean.flDuration = 0.5;
+
+	m_animDriverDoor.iPoseParameter = LookupPoseParameter( "driver_door" );
+	m_animDriverDoor.flDuration = 0.6;
+
+	m_ServerVehicle.UseLegacyExitChecks( false );
+
+	// When switching from a moving func_tracktrain to a non-moving prop_dynamic
+	// parent my local velocity becomes equal to the old func_tracktrain velocity,
+	// but it should be zero.  This prevents Barney exiting the truck on namd1
+	// when transitioning from namd0.
+	if ( GetMoveParent() )
+		SetAbsVelocity( GetMoveParent()->GetAbsVelocity() );
+}
+
+//-----------------------------------------------------------------------------
+// We have to make sure the vehicle_driver_eyes attachment is in its default position
+// before getting the entry/exit points.
+static float g_oldPose;
+void CPropVehicleChoreoTruck::PreParseEntryExitAnims( void )
+{
+	g_oldPose = GetPoseParameter( m_animLean.iPoseParameter );
+	SetPoseParameter( m_animLean.iPoseParameter, 0 );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::PostParseEntryExitAnims( void )
+{
+	SetPoseParameter( m_animLean.iPoseParameter, g_oldPose );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::Think( void )
+{
+	if ( m_animLean.bRunning )
+	{
+		float flFrac = ( gpGlobals->curtime - m_animLean.flStartTime ) / m_animLean.flDuration;
+		flFrac = clamp( flFrac, 0.0f, 1.0f );
+		if ( m_animLean.bReverse )
+			SetPoseParameter( m_animLean.iPoseParameter, 1.0 - flFrac );
+		else
+			SetPoseParameter( m_animLean.iPoseParameter, flFrac );
+		if ( flFrac == 1.0 )
+		{
+			m_animLean.bRunning = false;
+			m_bPlayerLeaning = !m_bPlayerLeaning;
+		}
+	}
+
+	if ( m_animDriverDoor.bRunning )
+	{
+		float flFrac = ( gpGlobals->curtime - m_animDriverDoor.flStartTime ) / m_animDriverDoor.flDuration;
+		flFrac = clamp( flFrac, 0.0f, 1.0f );
+		if ( m_animDriverDoor.bReverse )
+			SetPoseParameter( m_animDriverDoor.iPoseParameter, 1.0 - flFrac );
+		else
+			SetPoseParameter( m_animDriverDoor.iPoseParameter, flFrac );
+		if ( flFrac == 1.0 )
+		{
+			m_animDriverDoor.bRunning = false;
+			if ( m_animDriverDoor.bReverse )
+			{
+				EmitSound( "Truck.DoorEndClose" );
+				m_driverDoorClosed.FireOutput( this, this );
+			}
+			else
+			{
+				EmitSound( "Truck.DoorEndOpen" );
+				m_driverDoorOpen.FireOutput( this, this );
+			}
+		}
+	}
+
+//	UpdateVehicleSounds();
+
+	BaseClass::Think();
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::ItemPostFrame( CBasePlayer *pPlayer )
+{
+	BaseClass::ItemPostFrame( pPlayer );
+
+	if ( pPlayer->m_afButtonPressed & IN_JUMP )
+	{
+		if ( !m_animLean.bRunning )
+		{
+			m_animLean.bRunning = true;
+			m_animLean.bReverse = m_bPlayerLeaning;
+			m_animLean.flStartTime = gpGlobals->curtime;
+
+			if ( m_bPlayerLeaning )
+			{
+				CBaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+				if ( pWeapon != NULL )
+				{
+					pWeapon->Holster( NULL );
+				}
+				pPlayer->m_Local.m_iHideHUD |= HIDEHUD_INVEHICLE;
+				pPlayer->ShowCrosshair( false );
+				m_bUsingStandardWeapons = false;
+			}
+			else
+			{
+				CBaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+				if ( pWeapon != NULL && pWeapon->IsWeaponVisible() == false )
+				{
+					pWeapon->Deploy();
+				}
+				pPlayer->m_Local.m_iHideHUD &= ~HIDEHUD_INVEHICLE;
+				pPlayer->ShowCrosshair( true );
+				m_bUsingStandardWeapons = true;
+			}
+		}
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::EnterVehicle( CBaseCombatCharacter *pPassenger )
+{
+	SetPoseParameter( "player_lean", 0.0 );
+	m_bPlayerLeaning = false;
+	m_bUsingStandardWeapons = false;
+
+	BaseClass::EnterVehicle( pPassenger );
+}
+
+//-----------------------------------------------------------------------------
+bool CPropVehicleChoreoTruck::CanExitVehicle( CBaseEntity *pEntity )
+{
+	if ( m_bPlayerLeaning || m_animLean.bRunning )
+		return false;
+	return BaseClass::CanExitVehicle( pEntity );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputOpenDriverDoor( inputdata_t &inputdata )
+{
+	if ( !m_animDriverDoor.bRunning )
+	{
+		m_animDriverDoor.bRunning = true;
+		m_animDriverDoor.bReverse = false;
+		m_animDriverDoor.flStartTime = gpGlobals->curtime;
+//		SetPoseParameter( m_animDriverDoor.iPoseParameter, 0.0f );
+		EmitSound( "Truck.DoorStartOpen" );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputCloseDriverDoor( inputdata_t &inputdata )
+{
+	if ( !m_animDriverDoor.bRunning )
+	{
+		m_animDriverDoor.bRunning = true;
+		m_animDriverDoor.bReverse = true;
+		m_animDriverDoor.flStartTime = gpGlobals->curtime;
+//		SetPoseParameter( m_animDriverDoor.iPoseParameter, 1.0f );
+		EmitSound( "Truck.DoorEndOpen" );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputPassengerOpenVehicle( inputdata_t &inputdata )
+{
+	InputOpenDriverDoor( inputdata );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputPassengerCloseVehicle( inputdata_t &inputdata )
+{
+	InputCloseDriverDoor( inputdata );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputUnlockDriverSideExit( inputdata_t &inputdata )
+{
+	m_bDriverSideExitLocked = false;
+}
+
+extern const char *pSoundStateNames[];
+const char *pVehicleSoundNames[] =
+{
+	"VS_SKID_FRICTION_LOW",
+	"VS_SKID_FRICTION_NORMAL",
+	"VS_SKID_FRICTION_HIGH",
+	"VS_ENGINE2_START",
+	"VS_ENGINE2_STOP",
+	"VS_MISC1",
+	"VS_MISC2",
+	"VS_MISC3",
+	"VS_MISC4"
+};
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::InputVehicleSound( inputdata_t &inputdata )
+{
+	const char *s = inputdata.value.String();
+
+	for ( int i = 0; i < SS_NUM_STATES; i++ )
+	{
+		if ( !strcmpi( pSoundStateNames[i], s ) )
+		{
+			switch ( i )
+			{
+			case SS_START_IDLE:
+				{
+					const char *pSoundName = m_ServerVehicle.m_vehicleSounds.iszStateSounds[SS_START_IDLE].ToCStr();
+					PlayLoopingSound( pSoundName );
+				}
+				break;
+			case SS_SHUTDOWN:
+				{
+					StopLoopingSound();
+					const char *pSoundName = m_ServerVehicle.m_vehicleSounds.iszStateSounds[SS_SHUTDOWN].ToCStr();
+					PlaySound( pSoundName );
+				}
+				break;
+			default:
+				{
+					const char *pSoundName = m_ServerVehicle.m_vehicleSounds.iszStateSounds[(vehiclesound)i].ToCStr();
+					PlayLoopingSound( pSoundName );
+				}
+				break;
+			}
+			return;
+		}
+	}
+	for ( int i = 0; i < VS_NUM_SOUNDS; i++ )
+	{
+		if ( !strcmpi( pVehicleSoundNames[i], s ) )
+		{
+			const char *pSoundName = m_ServerVehicle.m_vehicleSounds.iszSound[(vehiclesound)i].ToCStr();
+			if ( i == VS_MISC2 ) // classic engine loop
+				PlayLoopingSound( pSoundName );
+			else
+				PlaySound( pSoundName );
+			return;
+		}
+	}
+
+	DevWarning( "CPropVehicleChoreoTruck::InputVehicleSound unknown sound \"%s\"\n", s );
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::PlayLoopingSound( const char *pSoundName )
+{
+	CSoundEnvelopeController &controller = CSoundEnvelopeController::GetController();
+
+	CPASAttenuationFilter filter( this );
+	CSoundPatch *pNewSound = NULL;
+	if ( pSoundName && pSoundName[0] )
+	{
+		pNewSound = controller.SoundCreate( filter, entindex(), CHAN_STATIC, pSoundName, ATTN_NORM );
+	}
+
+	if ( m_pStateSound && pNewSound && controller.SoundGetName( pNewSound ) == controller.SoundGetName( m_pStateSound ) )
+	{
+		// if the sound is the same, don't play this, just re-use the old one
+		controller.SoundDestroy( pNewSound );
+		pNewSound = m_pStateSound;
+		controller.SoundChangeVolume( pNewSound, 1.0f, 0.0f );
+		m_pStateSound = NULL;
+	}
+/*
+	else if ( g_debug_vehiclesound.GetInt() )
+	{
+		const char *pStopSound = m_pStateSound ?  controller.SoundGetName( m_pStateSound ).ToCStr() : "NULL";
+		const char *pStartSound = pNewSound ?  controller.SoundGetName( pNewSound ).ToCStr() : "NULL";
+		Msg("Stop %s, start %s\n", pStopSound, pStartSound );
+	}
+*/
+	StopLoopingSound();
+	m_pStateSound = pNewSound;
+	if ( m_pStateSound )
+	{
+		controller.Play( m_pStateSound, 1.0f, 100 );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::PlaySound( const char *pSoundName )
+{
+	if ( pSoundName && pSoundName[0] )
+	{
+		CPASAttenuationFilter filter( this );
+
+		EmitSound_t ep;
+		ep.m_nChannel = CHAN_VOICE;
+		ep.m_pSoundName = pSoundName;
+		ep.m_flVolume = 1.0/*m_flVehicleVolume*/;
+		ep.m_SoundLevel = SNDLVL_NORM;
+
+		CBaseEntity::EmitSound( filter, entindex(), ep );
+/*
+		if ( g_debug_vehiclesound.GetInt() )
+		{
+			Msg("Playing vehicle sound: %s\n", ep.m_pSoundName );
+		}
+*/
+	}
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::StopLoopingSound( float fadeTime )
+{
+	CSoundEnvelopeController &controller = CSoundEnvelopeController::GetController();
+	if ( m_pStateSoundFade )
+	{
+		controller.SoundDestroy( m_pStateSoundFade );
+		m_pStateSoundFade = NULL;
+	}
+	if ( m_pStateSound )
+	{
+		m_pStateSoundFade = m_pStateSound;
+		m_pStateSound = NULL;
+		controller.SoundFadeOut( m_pStateSoundFade, fadeTime, false );
+	}
+}
+
+//-----------------------------------------------------------------------------
+int CPropVehicleChoreoTruck::FindEntryHitbox( const Vector &vecEyePoint )
+{
+	// Figure out which entrypoint hitbox the player is in
+	CBaseAnimating *pAnimating = this;
+
+	CStudioHdr *pStudioHdr = pAnimating->GetModelPtr();
+	if (!pStudioHdr)
+		return -1;
+	int iHitboxSet = FindHitboxSetByName( pStudioHdr, "entryboxes" );
+	mstudiohitboxset_t *set = pStudioHdr->pHitboxSet( iHitboxSet );
+	if ( !set || !set->numhitboxes )
+		return -1;
+
+	// Loop through the hitboxes and find out which one we're in
+	for ( int i = 0; i < set->numhitboxes; i++ )
+	{
+		mstudiobbox_t *pbox = set->pHitbox( i );
+
+		Vector vecPosition;
+		QAngle vecAngles;
+		pAnimating->GetBonePosition( pbox->bone, vecPosition, vecAngles );
+
+		// Build a rotation matrix from orientation
+		matrix3x4_t fRotateMatrix;
+		AngleMatrix( vecAngles, vecPosition, fRotateMatrix);
+
+		Vector localEyePoint;
+		VectorITransform( vecEyePoint, fRotateMatrix, localEyePoint );
+		if ( IsPointInBox( localEyePoint, pbox->bbmin, pbox->bbmax ) )
+		{
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+//-----------------------------------------------------------------------------
+void CPropVehicleChoreoTruck::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
+{
+	CBasePlayer *pPlayer = ToBasePlayer( pActivator );
+	if ( !pPlayer )
+		return;
+
+	ResetUseKey( pPlayer );
+
+	// See if the player is attempting to enter through the driver-side door.
+	// If so we want to inform him that he lacks the intelligence to drive.
+	int hitbox = FindEntryHitbox( pPlayer->EyePosition() );
+	if ( hitbox == 1 )
+	{
+		m_PlayerAttemptedDriverEntry.FireOutput( this, this );
+		return;
+	}
+
+	GetServerVehicle()->HandlePassengerEntry( pPlayer, (value > 0) );
+}
+
+//-----------------------------------------------------------------------------
+bool IsVehicleExitLocked( CBaseServerVehicle *pServerVehicle, int nExitAnim )
+{
+	CBaseEntity *pVehicleEnt = pServerVehicle->GetVehicleEnt();
+	if ( pVehicleEnt == NULL )
+		return false;
+
+	CPropVehicleChoreoTruck *pChoreoVehicle = dynamic_cast <CPropVehicleChoreoTruck *>( pVehicleEnt );
+	if ( pChoreoVehicle == NULL )
+		return false;
+
+	if ( nExitAnim == 1 && pChoreoVehicle->m_bDriverSideExitLocked )
+		return true;
+
+	return false;
+}
+
+#endif // HOE_DLL

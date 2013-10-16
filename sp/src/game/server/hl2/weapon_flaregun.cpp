@@ -50,6 +50,9 @@ BEGIN_DATADESC( CFlare )
 	DEFINE_FIELD( m_flTimeBurnOut,	FIELD_TIME ),
 	DEFINE_KEYFIELD( m_flScale,		FIELD_FLOAT, "scale" ),
 	DEFINE_KEYFIELD( m_flDuration,	FIELD_FLOAT, "duration" ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_iFlareGravity,	FIELD_INTEGER, "gravity" ),
+#endif
 	DEFINE_FIELD( m_flNextDamage,	FIELD_TIME ),
 	DEFINE_SOUNDPATCH( m_pBurnSound ),
 	DEFINE_FIELD( m_bFading,		FIELD_BOOLEAN ),
@@ -89,7 +92,11 @@ CFlare *CFlare::GetActiveFlares( void )
 
 Class_T CFlare::Classify( void )
 {
+#ifdef HOE_DLL
+	return CLASS_NONE; 
+#else
 	return CLASS_FLARE; 
+#endif
 }
 
 CBaseEntity *CreateFlare( Vector vOrigin, QAngle Angles, CBaseEntity *pOwner, float flDuration )
@@ -136,6 +143,9 @@ CFlare::CFlare( void )
 	m_bPropFlare	= false;
 	m_bInActiveList	= false;
 	m_pNextFlare	= NULL;
+#ifdef HOE_DLL
+	m_iFlareGravity	= 400;
+#endif
 }
 
 CFlare::~CFlare()
@@ -197,7 +207,11 @@ void CFlare::Spawn( void )
 
 	SetMoveType( MOVETYPE_NONE );
 	SetFriction( 0.6f );
+#ifdef HOE_DLL
+	SetGravity( UTIL_ScaleForGravity( m_iFlareGravity ) );
+#else
 	SetGravity( UTIL_ScaleForGravity( 400 ) );
+#endif
 	m_flTimeBurnOut = gpGlobals->curtime + 30;
 
 	AddEffects( EF_NOSHADOW|EF_NORECEIVESHADOW );
@@ -557,6 +571,20 @@ void CFlare::Die( float fadeTime )
 void CFlare::Launch( const Vector &direction, float speed )
 {
 	// Make sure we're visible
+#ifdef HOE_DLL
+	// Allow Start() followed by Launch()
+	if ( GetEffects() & EF_NODRAW )
+	{
+		if ( m_spawnflags & SF_FLARE_INFINITE )
+		{
+			Start( -1 );
+		}
+		else
+		{
+			Start( m_flDuration ); // hard-coded at 8.0f ???
+		}
+	}
+#else
 	if ( m_spawnflags & SF_FLARE_INFINITE )
 	{
 		Start( -1 );
@@ -565,13 +593,18 @@ void CFlare::Launch( const Vector &direction, float speed )
 	{
 		Start( 8.0f );
 	}
+#endif
 
 	SetMoveType( MOVETYPE_FLYGRAVITY, MOVECOLLIDE_FLY_BOUNCE );
 
 	// Punch our velocity towards our facing
 	SetAbsVelocity( direction * speed );
 
+#ifdef HOE_DLL
+	// Keep my desired gravity!
+#else
 	SetGravity( 1.0f );
+#endif
 }
 
 //-----------------------------------------------------------------------------

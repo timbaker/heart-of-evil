@@ -787,6 +787,14 @@ void CPhysicsPushedEntities::RotateRootEntity( CBaseEntity *pRoot, float movetim
 	QAngle angles = pRoot->GetLocalAngles();
 	angles += pRoot->GetLocalAngularVelocity() * movetime;
 
+#ifdef HOE_DLL
+	// func_rotating fix
+	// FIXME: god only knows what other stuff this might break
+	angles.x = anglemod(angles.x);
+	angles.y = anglemod(angles.y);
+	angles.z = anglemod(angles.z);
+#endif
+
 	pRoot->SetLocalAngles( angles );
 	
 	// Compute the change in absangles

@@ -52,6 +52,12 @@ public:
 
 	bool	CanBeAnEnemyOf( CBaseEntity *pEnemy );
 
+#ifdef HOE_DLL
+	// CAI_BaseNPC::CreateCustomTarget sent a SetHealth event but that event
+	// does not cross level transitions.
+	void	SetLifetime( float flLifeTime );
+	float	m_flLifeTime;
+#endif // HOE_DLL
 
 protected:
 

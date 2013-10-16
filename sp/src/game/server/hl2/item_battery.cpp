@@ -23,12 +23,20 @@ public:
 	void Spawn( void )
 	{ 
 		Precache( );
+#ifdef HOE_DLL
+		SetModel( "models/w_battery/w_battery.mdl" );
+#else
 		SetModel( "models/items/battery.mdl" );
+#endif
 		BaseClass::Spawn( );
 	}
 	void Precache( void )
 	{
+#ifdef HOE_DLL
+		PrecacheModel ( "models/w_battery/w_battery.mdl" );
+#else
 		PrecacheModel ("models/items/battery.mdl");
+#endif
 
 		PrecacheScriptSound( "ItemBattery.Touch" );
 
@@ -41,5 +49,8 @@ public:
 };
 
 LINK_ENTITY_TO_CLASS(item_battery, CItemBattery);
+#ifdef HOE_DLL
+LINK_ENTITY_TO_CLASS(item_helmet, CItemBattery);
+#endif
 PRECACHE_REGISTER(item_battery);
 

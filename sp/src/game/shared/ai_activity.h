@@ -2102,6 +2102,29 @@ typedef enum
 	ACT_THROWABLE_VM_IDLE,
 	ACT_THROWABLE_VM_FIRE,
 
+#ifdef HOE_IRONSIGHTS
+	ACT_VM_PRIMARYATTACK_IRONSIGHT,
+	ACT_VM_SECONDARYATTACK_IRONSIGHT,
+	ACT_VM_IDLE_IRONSIGHT,
+	ACT_VM_IRONSIGHT_TRANSITION,
+#endif // HOE_IRONSIGHTS
+
+#ifdef HOE_DLL
+	// Chainsaw v_model and matching thirdperson player activities
+	ACT_CHAINSAW_IDLE_OFF,
+	ACT_CHAINSAW_START_FAIL,
+	ACT_CHAINSAW_START_EMPTY,
+	ACT_CHAINSAW_START_READY,
+	ACT_CHAINSAW_START,
+	ACT_CHAINSAW_IDLE,
+	ACT_CHAINSAW_IDLE_HIT,
+	ACT_CHAINSAW_ATTACK,
+
+	// Chainsaw thirdperson player activities
+	ACT_CHAINSAW_IDLE_AIM,
+	ACT_CHAINSAW_RUN,
+#endif // HOE_DLL
+
 	// this is the end of the global activities, private per-monster activities start here.
 	LAST_SHARED_ACTIVITY,
 } Activity;

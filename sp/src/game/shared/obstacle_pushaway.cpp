@@ -39,6 +39,22 @@ bool IsPushAwayEntity( CBaseEntity *pEnt )
 	{
 		// Try backing away from doors that are currently rotating, to prevent blocking them
 #ifndef CLIENT_DLL
+#ifdef HOE_DLL
+		if ( FClassnameIs( pEnt, "func_door*" ) || FClassnameIs( pEnt, "prop_door*" ) )
+		{
+			IDoor *iface = dynamic_cast<IDoor *>(pEnt);
+			if ( !iface )
+			{
+				return false;
+			}
+			IDoorAccessor *acc = iface->GetDoorAccessor();
+
+			if ( !acc->IsDoorOpening() && !acc->IsDoorClosing() )
+			{
+				return false;
+			}
+		}
+#else
 		if ( FClassnameIs( pEnt, "func_door_rotating" ) )
 		{
 			CBaseDoor *door = dynamic_cast<CBaseDoor *>(pEnt);
@@ -66,6 +82,7 @@ bool IsPushAwayEntity( CBaseEntity *pEnt )
 			}
 		}
 		else
+#endif // HOE_DLL
 #endif // !CLIENT_DLL
 		{
 			return false;

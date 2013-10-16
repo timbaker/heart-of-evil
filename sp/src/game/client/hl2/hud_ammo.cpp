@@ -15,6 +15,9 @@
 #include <vgui/ILocalize.h>
 #include <vgui/ISurface.h>
 #include "ihudlcd.h"
+#ifdef HOE_DLL
+#include "hoe/c_weapon_870.h"
+#endif // HOE_DLL
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -124,10 +127,20 @@ void CHudAmmo::UpdatePlayerAmmo( C_BasePlayer *player )
 	hudlcd->SetGlobalStat( "(weapon_print_name)", wpn ? wpn->GetPrintName() : " " );
 	hudlcd->SetGlobalStat( "(weapon_name)", wpn ? wpn->GetName() : " " );
 
+#ifdef HOE_DLL
+	// Disable this display and draw special shotgun display if needed
+	if ( wpn && dynamic_cast<C_Weapon870 *>( wpn ) )
+		wpn = NULL;
+#endif // HOE_DLL
+
 	if ( !wpn || !player || !wpn->UsesPrimaryAmmo() )
 	{
 		hudlcd->SetGlobalStat( "(ammo_primary)", "n/a" );
         hudlcd->SetGlobalStat( "(ammo_secondary)", "n/a" );
+
+#ifdef HOE_DLL
+		m_hCurrentActiveWeapon = NULL;
+#endif // HOE_DLL
 
 		SetPaintEnabled(false);
 		SetPaintBackgroundEnabled(false);
@@ -262,7 +275,11 @@ void CHudAmmo::UpdateAmmoDisplays()
 	C_BasePlayer *player = C_BasePlayer::GetLocalPlayer();
 	IClientVehicle *pVehicle = player ? player->GetVehicle() : NULL;
 
+#ifdef HOE_DLL
+	if ( !pVehicle || player->UsingStandardWeaponsInVehicle() )
+#else // HOE_DLL
 	if ( !pVehicle )
+#endif // HOE_DLL
 	{
 		UpdatePlayerAmmo( player );
 	}
@@ -338,6 +355,7 @@ void CHudAmmo::Paint( void )
 #ifndef HL2MP
 	if ( m_hCurrentVehicle == NULL && m_iconPrimaryAmmo )
 	{
+#ifdef HOE_OLD_HUD
 		int nLabelHeight;
 		int nLabelWidth;
 		surface()->GetTextSize( m_hTextFont, m_LabelText, nLabelWidth, nLabelHeight );
@@ -347,6 +365,7 @@ void CHudAmmo::Paint( void )
 		int y = text_ypos - ( nLabelHeight + ( m_iconPrimaryAmmo->Height() / 2 ) );
 		
 		m_iconPrimaryAmmo->DrawSelf( x, y, GetFgColor() );
+#endif
 	}
 #endif // HL2MP
 }
@@ -447,6 +466,13 @@ protected:
 		C_BaseCombatWeapon *wpn = GetActiveWeapon();
 		C_BasePlayer *player = C_BasePlayer::GetLocalPlayer();
 		IClientVehicle *pVehicle = player ? player->GetVehicle() : NULL;
+
+#ifdef HOE_DLL
+		// Disable this display and draw special shotgun display if needed
+		if ( wpn && dynamic_cast<C_Weapon870 *>( wpn ) )
+			wpn = NULL;
+#endif // HOE_DLL
+
 		if (!wpn || !player || pVehicle)
 		{
 			m_hCurrentActiveWeapon = NULL;

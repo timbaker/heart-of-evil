@@ -211,6 +211,9 @@ public:
 	bool					IsViewModelSequenceFinished( void ); // Returns if the viewmodel's current animation is finished
 
 	virtual void			SetViewModel();
+#ifdef HOE_WEAPONMODEL_FIX
+	CBaseViewModel			*GetViewModelPtr();
+#endif
 
 	virtual bool			HasWeaponIdleTimeElapsed( void );
 	virtual void			SetWeaponIdleTime( float time );
@@ -277,6 +280,10 @@ public:
 	virtual Activity		GetPrimaryAttackActivity( void );
 	virtual Activity		GetSecondaryAttackActivity( void );
 	virtual Activity		GetDrawActivity( void );
+#ifdef HOE_DLL
+	virtual Activity		GetHolsterActivity( void );
+	virtual Activity		GetIdleActivity( void );
+#endif
 	virtual float			GetDefaultAnimSpeed( void ) { return 1.0; }
 
 	// Bullet launch information
@@ -317,6 +324,10 @@ public:
 	void					SetOwner( CBaseCombatCharacter *owner );
 	virtual void			OnPickedUp( CBaseCombatCharacter *pNewOwner );
 
+#ifdef HOE_DLL
+	// Added for sniper rifle zoom in/out
+	virtual bool			CalcViewModelView( CBaseViewModel *viewmodel, const Vector& preOrigin, const QAngle& preAngles, Vector& origin, QAngle& angles );
+#endif // HOE_DLL
 	virtual void			AddViewmodelBob( CBaseViewModel *viewmodel, Vector &origin, QAngle &angles ) {};
 	virtual float			CalcViewmodelBob( void ) { return 0.0f; };
 
@@ -358,6 +369,40 @@ public:
 	virtual bool			UsesClipsForAmmo1( void ) const;
 	virtual bool			UsesClipsForAmmo2( void ) const;
 	bool					IsMeleeWeapon() const;
+#ifdef HOE_DLL
+	virtual Vector			GetWeaponSelectionHUD_Origin( void ) const;
+	virtual QAngle			GetWeaponSelectionHUD_Angles( void ) const;
+	virtual const char		*GetWeaponSelectionHUD_Model( void ) const;
+	virtual const char		*GetWeaponSelectionHUD_Anim( void ) const;
+#endif // HOE_DLL
+#ifdef HOE_VIEWMODEL_FUDGE
+	virtual Vector			GetViewModelFudge_Origin( void ) const;
+#endif // HOE_VIEWMODEL_FUDGE
+#ifdef HOE_IRONSIGHTS
+	virtual Vector			GetIronSights_Origin( void ) const;
+	virtual QAngle			GetIronSights_Angles( void ) const;
+	virtual int				GetIronSights_FOV( void ) const;
+
+	enum WeaponIronSightState_t {
+		IRONSIGHT_STATE_NONE,
+		IRONSIGHT_STATE_TO,
+		IRONSIGHT_STATE_ACTIVE,
+		IRONSIGHT_STATE_FROM,
+	};
+
+	virtual bool			HasIronSights( void );
+	virtual bool			IsIronSightsActive( void ) { return m_nIronSightsState == IRONSIGHT_STATE_ACTIVE; }
+	virtual bool			IsIronSightsTransitioning( void ) { return m_nIronSightsState == IRONSIGHT_STATE_TO || m_nIronSightsState == IRONSIGHT_STATE_FROM; }
+	virtual WeaponIronSightState_t		GetIronSightsState( void ) { return m_nIronSightsState; }
+
+#ifndef CLIENT_DLL
+	virtual bool			CanToggleIronSights( void );
+	virtual bool			ToggleIronSights( void );
+#endif
+
+	CNetworkVar( WeaponIronSightState_t, m_nIronSightsState );
+	CNetworkVar( float, m_flIronSightsToggleTime );
+#endif // HOE_IRONSIGHTS
 
 	// derive this function if you mod uses encrypted weapon info files
 	virtual const unsigned char *GetEncryptionKey( void );
@@ -423,6 +468,9 @@ public:
 	void					SetRemoveable( bool bRemoveable ) { m_bRemoveable = bRemoveable; }
 	
 	// Returns bits for	weapon conditions
+#ifdef HOE_DLL
+	virtual int				WeaponLOSMask( void ) { return MASK_SHOT; }
+#endif
 	virtual bool			WeaponLOSCondition( const Vector &ownerPos, const Vector &targetPos, bool bSetConditions );	
 	virtual	int				WeaponRangeAttack1Condition( float flDot, float flDist );
 	virtual	int				WeaponRangeAttack2Condition( float flDot, float flDist );

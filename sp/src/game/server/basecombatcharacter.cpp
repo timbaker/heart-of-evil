@@ -203,6 +203,10 @@ IMPLEMENT_SERVERCLASS_ST(CBaseCombatCharacter, DT_BaseCombatCharacter)
 	SendPropInt( SENDINFO(m_iPowerups), MAX_POWERUPS, SPROP_UNSIGNED ), 
 #endif
 
+#ifdef HOE_DLL
+	SendPropInt( SENDINFO( m_bloodColor ) ),
+#endif // HOE_DLL
+
 END_SEND_TABLE()
 
 
@@ -311,6 +315,12 @@ struct VisibilityCacheEntry_t
 	CBaseEntity *pEntity2;
 	EHANDLE		pBlocker;
 	float		time;
+#ifdef HOE_DLL
+	bool		bVisible; // I get weirdness with SOG possibly because they are FL_NOTARGET.
+						  // pBlocker is NULL even though FVisible returns false. NPC checks
+						  // FVisible(SOG) which is false but blocker is NULL, then SOG checks
+						  // FVisible(NPC) and thinks it *is* visible.
+#endif // HOE_DLL
 };
 
 class CVisibilityCacheEntryLess
@@ -359,8 +369,13 @@ bool CBaseCombatCharacter::FVisible( CBaseEntity *pEntity, int traceMask, CBaseE
 	{
 		if ( gpGlobals->curtime - g_VisibilityCache[iCache].time < VIS_CACHE_ENTRY_LIFE )
 		{
+#ifdef HOE_DLL
+			bool bCachedResult = g_VisibilityCache[iCache].bVisible;
+			if ( !bCachedResult ) // BUG: logic was reversed in SDK
+#else // HOE_DLL
 			bool bCachedResult = !g_VisibilityCache[iCache].pBlocker.IsValid();
 			if ( bCachedResult )
+#endif // HOE_DLL
 			{
 				if ( ppBlocker )
 				{
@@ -411,6 +426,9 @@ bool CBaseCombatCharacter::FVisible( CBaseEntity *pEntity, int traceMask, CBaseE
 	}
 
 	g_VisibilityCache[iCache].time = gpGlobals->curtime;
+#ifdef HOE_DLL
+	g_VisibilityCache[iCache].bVisible = bResult;
+#endif // HOE_DLL
 
 	return bResult;
 }
@@ -1083,7 +1101,11 @@ void CBaseCombatCharacter::Weapon_FrameUpdate( void )
 // Input   :
 // Output  :
 //------------------------------------------------------------------------------
+#ifdef HOE_DLL
+CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( float flDist, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float forceScale, bool bDamageAnyNPC, Vector forceVector )
+#else // HOE_DLL
 CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( float flDist, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float forceScale, bool bDamageAnyNPC )
+#endif // HOE_DLL
 {
 	// If only a length is given assume we want to trace in our facing direction
 	Vector forward;
@@ -1104,7 +1126,12 @@ CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( float flDist, const Vec
 
 	vStart.z += flVerticalOffset;
 	Vector vEnd = vStart + (forward * flDist );
+#ifdef HOE_DLL
+	return CheckTraceHullAttack( vStart, vEnd, mins, maxs, iDamage, iDmgType, forceScale,
+			bDamageAnyNPC, forceVector );
+#else // HOE_DLL
 	return CheckTraceHullAttack( vStart, vEnd, mins, maxs, iDamage, iDmgType, forceScale, bDamageAnyNPC );
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -1150,6 +1177,10 @@ bool CTraceFilterMelee::ShouldHitEntity( IHandleEntity *pHandleEntity, int conte
 		*/
 
 		Vector	attackDir = pEntity->WorldSpaceCenter() - m_dmgInfo->GetAttacker()->WorldSpaceCenter();
+#ifdef HOE_DLL
+		if ( m_forceVector != vec3_origin )
+				attackDir = m_forceVector;
+#endif
 		VectorNormalize( attackDir );
 
 		CTakeDamageInfo info = (*m_dmgInfo);				
@@ -1204,7 +1235,11 @@ bool CTraceFilterMelee::ShouldHitEntity( IHandleEntity *pHandleEntity, int conte
 // Input   :
 // Output  :
 //------------------------------------------------------------------------------
+#ifdef HOE_DLL
+CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( const Vector &vStart, const Vector &vEnd, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float flForceScale, bool bDamageAnyNPC, Vector forceVector )
+#else // HOE_DLL
 CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( const Vector &vStart, const Vector &vEnd, const Vector &mins, const Vector &maxs, int iDamage, int iDmgType, float flForceScale, bool bDamageAnyNPC )
+#endif // HOE_DLL
 {
 	// Handy debuging tool to visualize HullAttack trace
 	if ( ai_show_hull_attacks.GetBool() )
@@ -1223,7 +1258,11 @@ CBaseEntity *CBaseCombatCharacter::CheckTraceHullAttack( const Vector &vStart, c
 	CTakeDamageInfo	dmgInfo( this, this, iDamage, iDmgType );
 	
 	// COLLISION_GROUP_PROJECTILE does some handy filtering that's very appropriate for this type of attack, as well. (sjb) 7/25/2007
+#ifdef HOE_DLL
+	CTraceFilterMelee traceFilter( this, COLLISION_GROUP_PROJECTILE, &dmgInfo, flForceScale, bDamageAnyNPC, forceVector );
+#else // HOE_DLL
 	CTraceFilterMelee traceFilter( this, COLLISION_GROUP_PROJECTILE, &dmgInfo, flForceScale, bDamageAnyNPC );
+#endif // HOE_DLL
 
 	Ray_t ray;
 	ray.Init( vStart, vEnd, mins, maxs );
@@ -1548,7 +1587,11 @@ bool CBaseCombatCharacter::BecomeRagdoll( const CTakeDamageInfo &info, const Vec
 #endif // !HL2MP
 
 	// Mega physgun requires everything to be a server-side ragdoll
+#ifdef HOE_DLL
+	if ( m_bForceServerRagdoll == true || ( HL2GameRules()->MegaPhyscannonActive() == true ) && !IsPlayer() && !ClassifyPlayerAllyVital() && ClassifyPlayerAlly() )
+#else
 	if ( m_bForceServerRagdoll == true || ( ( bMegaPhyscannonActive == true ) && !IsPlayer() && Classify() != CLASS_PLAYER_ALLY_VITAL && Classify() != CLASS_PLAYER_ALLY ) )
+#endif
 	{
 		if ( CanBecomeServerRagdoll() == false )
 			return false;
@@ -1562,12 +1605,14 @@ bool CBaseCombatCharacter::BecomeRagdoll( const CTakeDamageInfo &info, const Vec
 		return true;
 	}
 
+#ifndef HOE_DLL
 	if( hl2_episodic.GetBool() && Classify() == CLASS_PLAYER_ALLY_VITAL )
 	{
 		CreateServerRagdoll( this, m_nForceBone, newinfo, COLLISION_GROUP_INTERACTIVE_DEBRIS, true );
 		RemoveDeferred();
 		return true;
 	}
+#endif // HOE_DLL
 #endif //HL2_DLL
 
 	return BecomeRagdollOnClient( forceVector );
@@ -2841,7 +2886,11 @@ CBaseEntity *CBaseCombatCharacter::Weapon_FindUsable( const Vector &range )
 	if( hl2_episodic.GetBool() && !GetActiveWeapon() )
 	{
 		// Unarmed citizens are conservative in their weapon finding
+#ifdef HOE_DLL
+		if ( !ClassifyPlayerAllyVital() )
+#else
 		if ( Classify() != CLASS_PLAYER_ALLY_VITAL )
+#endif
 		{
 			bConservative = true;
 		}
@@ -3039,7 +3088,11 @@ float CBaseCombatCharacter::CalculatePhysicsStressDamage( vphysics_objectstress_
 void CBaseCombatCharacter::ApplyStressDamage( IPhysicsObject *pPhysics, bool bRequireLargeObject )
 {
 #ifdef HL2_DLL
+#ifdef HOE_DLL
+	if( ClassifyPlayerAlly() || ClassifyPlayerAllyVital() )
+#else
 	if( Classify() == CLASS_PLAYER_ALLY || Classify() == CLASS_PLAYER_ALLY_VITAL )
+#endif
 	{
 		// Bypass stress completely for allies and vitals.
 		if( hl2_episodic.GetBool() )

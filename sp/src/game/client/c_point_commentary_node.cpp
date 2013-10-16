@@ -287,7 +287,11 @@ void C_PointCommentaryNode::OnDataChanged( DataUpdateType_t updateType )
 				pHudCloseCaption->Reset();
 
 				// Process the commentary caption
+#ifdef HOE_DLL
+				pHudCloseCaption->ProcessCaptionDirect( pszCommentaryFile, "", flDuration );
+#else // HOE_DLL
 				pHudCloseCaption->ProcessCaptionDirect( pszCommentaryFile, flDuration );
+#endif // HOE_DLL
 
 				// Find the close caption hud element & lock it
 				pHudCloseCaption->Lock();

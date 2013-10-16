@@ -896,7 +896,11 @@ void CTriggerMultiple::Spawn( void )
 //-----------------------------------------------------------------------------
 void CTriggerMultiple::MultiTouch(CBaseEntity *pOther)
 {
+#ifdef HOE_DLL
+	if (PassesTriggerFilters(pOther) && UTIL_IsMasterTriggered(m_sMaster, pOther))
+#else
 	if (PassesTriggerFilters(pOther))
+#endif
 	{
 		ActivateMultiTrigger( pOther );
 	}
@@ -1238,6 +1242,86 @@ void CTriggerVolume::Spawn( void )
 	}
 }
 
+#ifdef HOE_DLL
+LINK_ENTITY_TO_CLASS( trigger_transition_exclude, CTriggerVolume );
+
+class CChangeLevelViewControl : public CPointEntity
+{
+public:
+	DECLARE_CLASS( CChangeLevelViewControl, CPointEntity );
+	DECLARE_DATADESC();
+
+	CChangeLevelViewControl()
+	{
+		Assert( !gm_pViewControl );
+		gm_pViewControl = this;
+
+		m_bActive = false;
+	}
+	~CChangeLevelViewControl()
+	{
+		gm_pViewControl = NULL;
+	}
+
+	// Always transmit to clients so they know where to move the view to
+	virtual int UpdateTransmitState( void )
+	{
+		return m_bActive ? FL_EDICT_ALWAYS : FL_EDICT_DONTSEND;
+	}
+
+	void TakeControl( CBasePlayer *pPlayer )
+	{
+		m_bActive = true;
+
+		UTIL_SetOrigin( this, pPlayer->EyePosition() );
+//		SetLocalAngles( QAngle( pPlayer->GetLocalAngles().x, pPlayer->GetLocalAngles().y, 0 ) );
+		SetLocalAngles( QAngle( pPlayer->EyeAngles().x, pPlayer->EyeAngles().y, 0 ) );
+//		SetAbsVelocity( pPlayer->GetAbsVelocity() );
+		SetAbsVelocity( vec3_origin );
+
+		pPlayer->SetViewEntity( this );
+
+		// Hide the player's viewmodel
+		// IFF the player teleports out of view of this entity there's no need to hide the viewmodel
+		if ( pPlayer->GetActiveWeapon() )
+		{
+			pPlayer->GetActiveWeapon()->AddEffects( EF_NODRAW );
+		}
+
+		DispatchUpdateTransmitState();
+	}
+
+	bool m_bActive;
+
+	friend CChangeLevelViewControl *GetChangeLevelViewControl( void );
+	static CChangeLevelViewControl *gm_pViewControl;
+};
+
+LINK_ENTITY_TO_CLASS( changelevel_viewcontrol, CChangeLevelViewControl );
+
+BEGIN_DATADESC( CChangeLevelViewControl )
+	DEFINE_FIELD( m_bActive, FIELD_BOOLEAN ),
+END_DATADESC()
+
+CChangeLevelViewControl *CChangeLevelViewControl::gm_pViewControl = NULL;
+
+CChangeLevelViewControl *GetChangeLevelViewControl( void )
+{
+	if ( !CChangeLevelViewControl::gm_pViewControl )
+	{
+		CreateEntityByName( "changelevel_viewcontrol" );
+		Assert( CChangeLevelViewControl::gm_pViewControl );
+		if ( CChangeLevelViewControl::gm_pViewControl )
+			DispatchSpawn( CChangeLevelViewControl::gm_pViewControl );
+	}
+
+	return CChangeLevelViewControl::gm_pViewControl;
+}
+
+const char *g_MapChangeLandmarkName = NULL;
+
+#endif // HOE_DLL
+
 #define SF_CHANGELEVEL_NOTOUCH		0x0002
 #define SF_CHANGELEVEL_CHAPTER		0x0004
 
@@ -1281,6 +1365,9 @@ private:
 	static CBaseEntity *FindLandmark( const char *pLandmarkName );
 	static int AddTransitionToList( levellist_t *pLevelList, int listCount, const char *pMapName, const char *pLandmarkName, edict_t *pentLandmark );
 	static int InTransitionVolume( CBaseEntity *pEntity, const char *pVolumeName );
+#ifdef HOE_DLL
+	static int InExclusionVolume( CBaseEntity *pEntity, const char *pVolumeName );
+#endif // HOE_DLL
 
 	// Builds the list of entities to save when moving across a transition
 	static int BuildChangeLevelList( levellist_t *pLevelList, int maxList );
@@ -1301,6 +1388,9 @@ private:
 	char m_szMapName[cchMapNameMost];		// trigger_changelevel only:  next map
 	char m_szLandmarkName[cchMapNameMost];		// trigger_changelevel only:  landmark on next map
 	bool m_bTouched;
+#ifdef HOE_DLL
+	string_t m_TeleportPlayerTo;
+#endif
 
 	// Outputs
 	COutputEvent m_OnChangeLevel;
@@ -1316,6 +1406,9 @@ BEGIN_DATADESC( CChangeLevel )
 	DEFINE_AUTO_ARRAY( m_szLandmarkName, FIELD_CHARACTER ),
 //	DEFINE_FIELD( m_touchTime, FIELD_TIME ),	// don't save
 //	DEFINE_FIELD( m_bTouched, FIELD_BOOLEAN ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_TeleportPlayerTo, FIELD_STRING, "playerteleport" ),
+#endif
 
 	// Function Pointers
 	DEFINE_FUNCTION( TouchChangeLevel ),
@@ -1425,6 +1518,14 @@ void CChangeLevel::Activate( void )
 static char st_szNextMap[cchMapNameMost];
 static char st_szNextSpot[cchMapNameMost];
 
+#ifdef HOE_DLL
+string_t g_iszLandmarkName = NULL_STRING;
+string_t HOE_GetLandmarkName( void )
+{
+	return g_iszLandmarkName;
+}
+#endif // HOE_DLL
+
 // Used to show debug for only the transition volume we're currently in
 static int g_iDebuggingTransition = 0;
 
@@ -1474,6 +1575,20 @@ bool CChangeLevel::IsEntityInTransition( CBaseEntity *pEntity )
 	{
 		return false;
 	}
+
+#ifdef HOE_DLL
+	int exclusionState = InExclusionVolume(pEntity, m_szLandmarkName);
+	if ( exclusionState == TRANSITION_VOLUME_SCREENED_OUT )
+	{
+		return false;
+	}
+
+	// IGNORE PVS if the entity is in a transition volume
+	if ( transitionState == TRANSITION_VOLUME_PASSED )
+	{
+		return true;
+	}
+#endif // HOE_DLL
 
 	// look for a landmark entity		
 	CBaseEntity	*pLandmark = FindLandmark( m_szLandmarkName );
@@ -1557,6 +1672,29 @@ void CChangeLevel::ChangeLevelNow( CBaseEntity *pActivator )
 
 	CBaseEntity *pPlayer = (pActivator && pActivator->IsPlayer()) ? pActivator : UTIL_GetLocalPlayer();
 
+#ifdef HOE_DLL
+	if ( m_TeleportPlayerTo != NULL_STRING )
+	{
+		CBaseEntity *pTarget = gEntList.FindEntityByName( NULL, STRING( m_TeleportPlayerTo ) );
+		if ( pTarget == NULL )
+		{
+			DevWarning( "can't find trigger_changelevel's playerteleport entity '%s'\n", STRING( m_TeleportPlayerTo ) );
+		}
+		else
+		{
+			if ( ((CBasePlayer*)pPlayer)->IsInAVehicle() )
+			{
+				((CBasePlayer*)pPlayer)->LeaveVehicle( pPlayer->GetAbsOrigin(), pPlayer->GetAbsAngles() );
+			}
+
+			CChangeLevelViewControl *pViewEnt = GetChangeLevelViewControl();
+			pViewEnt->TakeControl( (CBasePlayer *) pPlayer );
+
+			pPlayer->Teleport( &pTarget->GetAbsOrigin(), &pTarget->GetAbsAngles(), &vec3_origin );
+		}
+	}
+#endif // HOE_DLL
+
 	int transitionState = InTransitionVolume(pPlayer, m_szLandmarkName);
 	if ( transitionState == TRANSITION_VOLUME_SCREENED_OUT )
 	{
@@ -1602,6 +1740,11 @@ void CChangeLevel::ChangeLevelNow( CBaseEntity *pActivator )
 	// This object will get removed in the call to engine->ChangeLevel, copy the params into "safe" memory
 	Q_strncpy(st_szNextMap, m_szMapName, sizeof(st_szNextMap));
 
+#ifdef HOE_DLL
+	// Used by human followers when outside transition
+	g_iszLandmarkName = AllocPooledString( m_szLandmarkName );
+#endif // HOE_DLL
+
 	m_hActivator = pActivator;
 
 	m_OnChangeLevel.FireOutput(pActivator, this);
@@ -1618,6 +1761,9 @@ void CChangeLevel::ChangeLevelNow( CBaseEntity *pActivator )
 	// If we're debugging, don't actually change level
 	if ( g_debug_transitions.GetInt() == 0 )
 	{
+#ifdef HOE_DLL
+		g_MapChangeLandmarkName = st_szNextSpot;
+#endif
 		engine->ChangeLevel( st_szNextMap, st_szNextSpot );
 	}
 	else
@@ -1811,6 +1957,37 @@ int CChangeLevel::InTransitionVolume( CBaseEntity *pEntity, const char *pVolumeN
 	return inVolume;
 }
 
+#ifdef HOE_DLL
+int CChangeLevel::InExclusionVolume( CBaseEntity *pEntity, const char *pVolumeName )
+{
+	CBaseEntity *pVolume;
+
+	if ( pEntity->ObjectCaps() & FCAP_FORCE_TRANSITION )
+		return TRANSITION_VOLUME_PASSED;
+
+	// If you're following another entity, follow it through the transition (weapons follow the player)
+	pEntity = pEntity->GetRootMoveParent();
+
+	// Unless we find a trigger_transition_exclude, nothing is exluded
+	int inVolume = TRANSITION_VOLUME_NOT_FOUND;
+
+	pVolume = gEntList.FindEntityByName( NULL, pVolumeName );
+	while ( pVolume )
+	{
+		if ( pVolume && FClassnameIs( pVolume, "trigger_transition_exclude" ) )
+		{
+			// It touches one, it's excluded
+			if ( TestEntityTriggerIntersection_Accurate(pVolume,  pEntity ) )
+				return TRANSITION_VOLUME_SCREENED_OUT;
+
+			// Found a trigger_transition_exclude, but I don't intersect it -- if I don't find another, pass
+			inVolume = TRANSITION_VOLUME_PASSED;
+		}
+		pVolume = gEntList.FindEntityByName( pVolume, pVolumeName );
+	}
+	return inVolume;
+}
+#endif // HOE_DLL
 
 //------------------------------------------------------------------------------
 // Builds the list of entities to save when moving across a transition
@@ -1936,6 +2113,58 @@ int CChangeLevel::BuildEntityTransitionList( CBaseEntity *pLandmarkEntity, const
 		g_iDebuggingTransition = 0;
 	}
 
+#ifdef HOE_DLL
+	// If there are any trigger_transition volumes then IGNORE PVS.
+	// This way trigger_transition defines the areas of overlap between
+	// 2 level precisely.  Did this to better handle human followers moving
+	// between levels.
+	CBaseEntity *pVolume = NULL;
+	while ( (pVolume = gEntList.FindEntityByName( pVolume, pLandmarkName )) != NULL )
+	{
+		if ( FClassnameIs( pVolume, "trigger_transition" ) )
+			break;
+	}
+	if ( pVolume )
+	{
+		for ( CBaseEntity *pEntity = gEntList.FirstEnt();
+			pEntity != NULL;
+			pEntity = gEntList.NextEnt( pEntity ) )
+		{
+			int flags = ComputeEntitySaveFlags( pEntity );
+			if ( !flags )
+				continue;
+
+			// Check to make sure the entity isn't screened out by a trigger_transition
+			if ( InTransitionVolume( pEntity, pLandmarkName ) == TRANSITION_VOLUME_SCREENED_OUT )
+			{
+				if ( g_iDebuggingTransition == DEBUG_TRANSITIONS_VERBOSE )
+				{
+					Msg( "IGNORED, outside transition volume.\n" );
+				}
+				continue;
+			}
+			if ( InExclusionVolume( pEntity, pLandmarkName ) == TRANSITION_VOLUME_SCREENED_OUT )
+			{
+				if ( g_iDebuggingTransition == DEBUG_TRANSITIONS_VERBOSE )
+				{
+					Msg( "IGNORED, inside exclusion volume.\n" );
+				}
+				continue;
+			}
+
+			if ( iEntity >= nMaxList )
+			{
+				Warning( "Too many entities across a transition!\n" );
+				Assert( 0 );
+				return iEntity;
+			}
+
+			iEntity = AddEntityToTransitionList( pEntity, flags, iEntity, ppEntList, pEntityFlags );
+		}
+	}
+	else
+	{
+#endif // HOE_DLL
 	// Follow the linked list of entities in the PVS of the transition landmark
 	CBaseEntity *pEntity = NULL; 
 	while ( (pEntity = UTIL_EntitiesInPVS( pLandmarkEntity, pEntity)) != NULL )
@@ -1953,7 +2182,16 @@ int CChangeLevel::BuildEntityTransitionList( CBaseEntity *pLandmarkEntity, const
 			}
 			continue;
 		}
-
+#ifdef HOE_DLL
+		if ( InExclusionVolume( pEntity, pLandmarkName ) == TRANSITION_VOLUME_SCREENED_OUT )
+		{
+			if ( g_iDebuggingTransition == DEBUG_TRANSITIONS_VERBOSE )
+			{
+				Msg( "IGNORED, inside exclusion volume.\n" );
+			}
+			continue;
+		}
+#endif // HOE_DLL
 		if ( iEntity >= nMaxList )
 		{
 			Warning( "Too many entities across a transition!\n" );
@@ -1963,6 +2201,36 @@ int CChangeLevel::BuildEntityTransitionList( CBaseEntity *pLandmarkEntity, const
 
 		iEntity = AddEntityToTransitionList( pEntity, flags, iEntity, ppEntList, pEntityFlags );
 	}
+#ifdef HOE_DLL
+	}
+#endif // HOE_DLL
+
+#if defined(_DEBUG) && defined(HOE_DLL)
+	for ( int i = 0; i < iEntity; i++ )
+	{
+		CBaseEntity *pEnt = ppEntList[i];
+		if ( pEnt && pEnt->FirstMoveChild() )
+		{
+			CBaseEntity *pChild = pEnt->FirstMoveChild();
+			while ( pChild )
+			{
+                int j;
+				for ( j = 0; j < iEntity; j++ )
+				{
+					if ( ppEntList[j] == pChild )
+						break;
+				}
+				if ( j >= iEntity )
+				{
+					Assert( 0 );
+					DevWarning( "*** entity '%s (%s)' added to transition list but has a child '%s (%s)' that isn't in transition list!\n",
+						pEnt->GetDebugName(), pEnt->GetClassname(), pChild->GetDebugName(), pChild->GetClassname() );
+				}
+				pChild = pChild->NextMovePeer();
+			}
+		}
+	}
+#endif // HOE_DLL
 
 	return iEntity;
 }
@@ -2748,7 +3016,9 @@ void CAI_ChangeHintGroup::InputActivate( inputdata_t &inputdata )
 #define SF_CAMERA_PLAYER_SNAP_TO		16
 #define SF_CAMERA_PLAYER_NOT_SOLID		32
 #define SF_CAMERA_PLAYER_INTERRUPT		64
-
+#ifdef HOE_DLL
+#define SF_CAMERA_HIDE_HUD				4096
+#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -2765,6 +3035,12 @@ public:
 	void Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
 	void FollowTarget( void );
 	void Move(void);
+#ifdef HOE_DLL
+	int ObjectCaps( void ) { return BaseClass::ObjectCaps() | FCAP_NOTIFY_ON_TRANSITION; }
+	void RestorePlayerState( void );
+	void InputOutsideTransition( inputdata_t &inputdata );
+	void UpdateOnRemove( void );
+#endif
 
 	// Always transmit to clients so they know where to move the view to
 	virtual int UpdateTransmitState();
@@ -2797,6 +3073,10 @@ private:
 	string_t m_iszTargetAttachment;
 	int	  m_iAttachmentIndex;
 	bool  m_bSnapToGoal;
+#ifdef HOE_DLL
+	float m_flAngularVelocityMultiplier;
+	int m_iHideHUD;
+#endif
 
 #if HL2_EPISODIC
 	bool  m_bInterpolatePosition;
@@ -2810,6 +3090,9 @@ private:
 
 	int   m_nPlayerButtons;
 	int m_nOldTakeDamage;
+#ifdef HOE_THIRDPERSON
+	bool m_bThirdPerson; // Was the camera in third-person when this entity become the view entity?
+#endif
 
 private:
 	COutputEvent m_OnEndFollow;
@@ -2840,6 +3123,12 @@ BEGIN_DATADESC( CTriggerCamera )
 	DEFINE_KEYFIELD( m_iszTargetAttachment, FIELD_STRING, "targetattachment" ),
 	DEFINE_FIELD( m_iAttachmentIndex, FIELD_INTEGER ),
 	DEFINE_FIELD( m_bSnapToGoal, FIELD_BOOLEAN ),
+#ifdef HOE_DLL
+	DEFINE_KEYFIELD( m_flAngularVelocityMultiplier, FIELD_FLOAT, "AngularVelocityMultiplier" ),
+	DEFINE_FIELD( m_iHideHUD, FIELD_INTEGER ),
+
+	DEFINE_INPUTFUNC( FIELD_VOID, "OutsideTransition", InputOutsideTransition ),
+#endif
 #if HL2_EPISODIC
 	DEFINE_KEYFIELD( m_bInterpolatePosition, FIELD_BOOLEAN, "interpolatepositiontoplayer" ),
 	DEFINE_FIELD( m_vStartPos, FIELD_VECTOR ),
@@ -2848,6 +3137,9 @@ BEGIN_DATADESC( CTriggerCamera )
 #endif
 	DEFINE_FIELD( m_nPlayerButtons, FIELD_INTEGER ),
 	DEFINE_FIELD( m_nOldTakeDamage, FIELD_INTEGER ),
+#ifdef HOE_THIRDPERSON
+	DEFINE_FIELD( m_bThirdPerson, FIELD_BOOLEAN ),
+#endif
 
 	// Inputs
 	DEFINE_INPUTFUNC( FIELD_VOID, "Enable", InputEnable ),
@@ -2880,6 +3172,11 @@ void CTriggerCamera::Spawn( void )
 
 	if ( m_deceleration == 0 )
 		m_deceleration = 500;
+
+#ifdef HOE_DLL
+	if ( m_flAngularVelocityMultiplier <= 0 )
+		m_flAngularVelocityMultiplier = 40;
+#endif
 
 	DispatchUpdateTransmitState();
 }
@@ -2929,7 +3226,10 @@ bool CTriggerCamera::KeyValue( const char *szKeyName, const char *szValue )
 // Purpose: Input handler to turn on this trigger.
 //------------------------------------------------------------------------------
 void CTriggerCamera::InputEnable( inputdata_t &inputdata )
-{ 
+{
+#ifdef HOE_DLL
+	Assert( m_state != USE_ON );
+#endif
 	m_hPlayer = inputdata.pActivator;
 	Enable();
 }
@@ -2940,6 +3240,9 @@ void CTriggerCamera::InputEnable( inputdata_t &inputdata )
 //------------------------------------------------------------------------------
 void CTriggerCamera::InputDisable( inputdata_t &inputdata )
 { 
+#ifdef HOE_DLL
+	Assert( m_state != USE_OFF );
+#endif
 	Disable();
 }
 
@@ -3003,6 +3306,12 @@ void CTriggerCamera::Enable( void )
 	// Make the player invulnerable while under control of the camera.  This will prevent situations where the player dies while under camera control but cannot restart their game due to disabled player inputs.
 	m_nOldTakeDamage = m_hPlayer->m_takedamage;
 	m_hPlayer->m_takedamage = DAMAGE_NO;
+
+#ifdef HOE_THIRDPERSON
+	m_bThirdPerson = pPlayer->IsThirdPerson();
+	if ( m_bThirdPerson )
+		pPlayer->ThirdPersonSwitch( false );
+#endif
 	
 	if ( HasSpawnFlags( SF_CAMERA_PLAYER_NOT_SOLID ) )
 	{
@@ -3053,6 +3362,14 @@ void CTriggerCamera::Enable( void )
 	{
 		((CBasePlayer*)m_hPlayer.Get())->EnableControl(FALSE);
 	}
+#ifdef HOE_DLL
+	if (HasSpawnFlags(SF_CAMERA_HIDE_HUD ) )
+	{
+		CBasePlayer *pPlayer = (CBasePlayer*)m_hPlayer.Get();
+		m_iHideHUD = pPlayer->m_Local.m_iHideHUD;
+		pPlayer->m_Local.m_iHideHUD = HIDEHUD_NEEDSUIT | HIDEHUD_CROSSHAIR;
+	}
+#endif
 
 	if ( m_sPath != NULL_STRING )
 	{
@@ -3143,10 +3460,26 @@ void CTriggerCamera::Disable( void )
 		{
 			((CBasePlayer*)m_hPlayer.Get())->GetActiveWeapon()->RemoveEffects( EF_NODRAW );
 		}
+
 		//return the player to previous takedamage state
 		m_hPlayer->m_takedamage = m_nOldTakeDamage;
+
+#ifdef HOE_DLL
+		if ( HasSpawnFlags( SF_CAMERA_HIDE_HUD ) )
+		{
+			CBasePlayer *pPlayer = (CBasePlayer*)m_hPlayer.Get();
+			pPlayer->m_Local.m_iHideHUD = m_iHideHUD;
+		}
+#endif
 	}
 
+#ifdef HOE_THIRDPERSON
+	if ( m_hPlayer )
+	{
+		CBasePlayer *pPlayer = (CBasePlayer*)m_hPlayer.Get();
+		pPlayer->ThirdPersonSwitch( m_bThirdPerson );
+	}
+#endif
 	m_state = USE_OFF;
 	m_flReturnTime = gpGlobals->curtime;
 	SetThink( NULL );
@@ -3250,7 +3583,12 @@ void CTriggerCamera::FollowTarget( )
 			dy = dy - 360;
 
 		QAngle vecAngVel;
+#ifdef HOE_DLL
+		vecAngVel.Init( dx * m_flAngularVelocityMultiplier * gpGlobals->frametime,
+			dy * m_flAngularVelocityMultiplier * gpGlobals->frametime, GetLocalAngularVelocity().z );
+#else
 		vecAngVel.Init( dx * 40 * gpGlobals->frametime, dy * 40 * gpGlobals->frametime, GetLocalAngularVelocity().z );
+#endif
 		SetLocalAngularVelocity(vecAngVel);
 	}
 
@@ -3362,6 +3700,57 @@ void CTriggerCamera::Move()
 #endif
 }
 
+#ifdef HOE_DLL
+void CTriggerCamera::RestorePlayerState( void )
+{
+	if ( m_hPlayer && m_hPlayer->IsAlive() )
+	{
+		CBasePlayer *pPlayer = (CBasePlayer*)m_hPlayer.Get();
+
+		if ( HasSpawnFlags( SF_CAMERA_PLAYER_NOT_SOLID ) )
+		{
+			m_hPlayer->RemoveSolidFlags( FSOLID_NOT_SOLID );
+		}
+
+		pPlayer->SetViewEntity( m_hPlayer );
+		pPlayer->EnableControl(TRUE);
+
+		// Restore the player's viewmodel
+		if ( pPlayer->GetActiveWeapon() )
+		{
+			pPlayer->GetActiveWeapon()->RemoveEffects( EF_NODRAW );
+		}
+
+		if ( HasSpawnFlags( SF_CAMERA_HIDE_HUD ) )
+		{
+			pPlayer->m_Local.m_iHideHUD = m_iHideHUD;
+		}
+
+		// Avoid InputOutsideTransition and UpdateOnRemove both doing this
+		m_hPlayer = NULL;
+	}
+}
+
+void CTriggerCamera::InputOutsideTransition( inputdata_t &inputdata )
+{
+	// Restore the player's state if level changes while enabled
+	if ( m_state == USE_ON )
+	{
+		RestorePlayerState();
+	}
+}
+
+void CTriggerCamera::UpdateOnRemove( void )
+{
+	// Restore the player's state if Killed while enabled
+	if ( m_state == USE_ON )
+	{
+		RestorePlayerState();
+	}
+
+	BaseClass::UpdateOnRemove();
+}
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: Starts/stops cd audio tracks

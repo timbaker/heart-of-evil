@@ -16,6 +16,8 @@
 #pragma once
 #endif
 
+#define HOE_SOUND_SHAPE // sound ray
+
 enum
 {
 	MAX_WORLD_SOUNDS_SP	= 64,	// Maximum number of sounds handled by the world at one time in single player.
@@ -111,8 +113,17 @@ public:
 	bool	DoesSoundExpire() const;
 	float	SoundExpirationTime() const;
 	void	SetSoundOrigin( const Vector &vecOrigin ) { m_vecOrigin = vecOrigin; }
+#ifdef HOE_SOUND_SHAPE
+#define GetSoundOrigin() HackGetSoundOrigin(EarPosition())
+#define GetSoundReactOrigin() HackGetSoundReactOrigin(EarPosition())
+	Vector	HackGetSoundOrigin( const Vector& vecListener );
+	Vector	HackGetSoundReactOrigin( const Vector& vecListener );
+	void	SetSoundRay( const Vector &vecRay ) { m_vecRay = vecRay; }
+	const Vector& GetSoundRay( void ) { return m_vecRay; }
+#else // HOE_SOUND_SHAPE
 	const	Vector& GetSoundOrigin( void ) { return m_vecOrigin; }
 	const	Vector& GetSoundReactOrigin( void );
+#endif // HOE_SOUND_SHAPE
 	bool	FIsSound( void );
 	bool	FIsScent( void );
 	bool	IsSoundType( int nSoundFlags ) const;
@@ -142,6 +153,11 @@ private:
 	int		m_ownerChannelIndex;
 
 	Vector	m_vecOrigin;	// sound's location in space
+
+#ifdef HOE_SOUND_SHAPE
+	Vector CalcSoundOrigin( const Vector& vecListener, const Vector& vecOrigin );
+	Vector	m_vecRay;		// direction & magnitude of sound ray
+#endif // HOE_SOUND_SHAPE
 
 	bool	m_bHasOwner;	// Lets us know if this sound was created with an owner. In case the owner goes null.
 
@@ -231,7 +247,12 @@ public:
 	void Initialize ( void );
 	int ObjectCaps( void ) { return BaseClass::ObjectCaps() & ~FCAP_ACROSS_TRANSITION; }
 
+#ifdef HOE_SOUND_SHAPE
+	static CSound*	InsertSound( int iType, const Vector &vecOrigin, int iVolume, float flDuration, CBaseEntity *pOwner = NULL, int soundChannelIndex = SOUNDENT_CHANNEL_UNSPECIFIED, CBaseEntity *pSoundTarget = NULL );
+	static CSound*	InsertSoundRay( int iType, const Vector &vecOrigin, const Vector &vecRay, int iVolume, float flDuration, CBaseEntity *pOwner = NULL, int soundChannelIndex = SOUNDENT_CHANNEL_UNSPECIFIED, CBaseEntity *pSoundTarget = NULL );
+#else // HOE_SOUND_SHAPE
 	static void		InsertSound ( int iType, const Vector &vecOrigin, int iVolume, float flDuration, CBaseEntity *pOwner = NULL, int soundChannelIndex = SOUNDENT_CHANNEL_UNSPECIFIED, CBaseEntity *pSoundTarget = NULL );
+#endif // HOE_SOUND_SHAPE
 	static void		FreeSound ( int iSound, int iPrevious );
 	static int		ActiveList( void );// return the head of the active list
 	static int		FreeList( void );// return the head of the free list

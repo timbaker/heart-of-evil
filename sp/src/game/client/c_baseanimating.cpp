@@ -276,6 +276,10 @@ BEGIN_DATADESC( C_ClientRagdoll )
 	DEFINE_AUTO_ARRAY( m_flScaleTimeEnd, FIELD_FLOAT ),
 	DEFINE_EMBEDDEDBYREF( m_pRagdoll ),
 
+#ifdef HOE_DLL
+	DEFINE_FIELD( m_bloodColor, FIELD_INTEGER ),
+#endif // HOE_DLL
+
 END_DATADESC()
 
 C_ClientRagdoll::C_ClientRagdoll( bool bRestoring )
@@ -294,6 +298,10 @@ C_ClientRagdoll::C_ClientRagdoll( bool bRestoring )
 	{
 		m_pRagdoll = new CRagdoll;
 	}
+
+#ifdef HOE_DLL
+	SetBloodColor( DONT_BLEED );
+#endif // HOE_DLL
 }
 
 void C_ClientRagdoll::OnSave( void )
@@ -386,6 +394,24 @@ void C_ClientRagdoll::ImpactTrace( trace_t *pTrace, int iDamageType, const char 
 		return;
 
 	Vector dir = pTrace->endpos - pTrace->startpos;
+
+#ifdef HOE_DLL
+	if ( iDamageType & (DMG_BULLET|DMG_SLASH) )
+	{
+		if ( iDamageType & DMG_BULLET )
+		{
+			// FIXME: I think a second trace would need to be performed to
+			// apply a damage decal here.
+		}
+		if ( BloodColor() != DONT_BLEED )
+		{
+			Vector vecDir = dir; vecDir.NormalizeInPlace();
+			Vector vecOrigin = pTrace->endpos - vecDir * 4;
+extern void	SpawnBlood(Vector vecSpot, const Vector &vecDir, int bloodColor, float flDamage);
+			SpawnBlood( vecOrigin, vecDir, BloodColor(), 4 );
+		}
+	}
+#endif // HOE_DLL
 
 	if ( iDamageType == DMG_BLAST )
 	{
@@ -1007,6 +1033,12 @@ CStudioHdr *C_BaseAnimating::OnNewModel()
 	if ( !GetModel() || modelinfo->GetModelType( GetModel() ) != mod_studio )
 		return NULL;
 
+#ifdef HOE_DLL
+	// Temporary entities (like brass) have m_nModelIndex==0
+	if (m_nModelIndex != 0)
+	{
+#endif
+
 	// Reference (and thus start loading) dynamic model
 	int nNewIndex = m_nModelIndex;
 	if ( modelinfo->GetModel( nNewIndex ) != GetModel() )
@@ -1029,6 +1061,10 @@ CStudioHdr *C_BaseAnimating::OnNewModel()
 		m_bResetSequenceInfoOnLoad = false;
 		return NULL;
 	}
+
+#ifdef HOE_DLL
+	}
+#endif
 
 	CStudioHdr *hdr = GetModelPtr();
 	if (hdr == NULL)
@@ -1107,6 +1143,10 @@ CStudioHdr *C_BaseAnimating::OnNewModel()
 	for ( i = 0; i < boneControllerCount ; i++ )
 	{
 		bool loop = (hdr->pBonecontroller( i )->type & (STUDIO_XR | STUDIO_YR | STUDIO_ZR)) != 0;
+#ifdef HOE_DLL
+		// See Studio_SetController()
+		loop = loop && (hdr->pBonecontroller(i)->start + 359.0 < hdr->pBonecontroller(i)->end);
+#endif // HOE_DLL
 		m_iv_flEncodedController.SetLooping( loop, i );
 		SetBoneController( i, 0.0 );
 	}
@@ -3338,6 +3378,9 @@ void C_BaseAnimating::DoAnimationEvents( CStudioHdr *pStudioHdr )
 #else
 	bool watch = false; // Q_strstr( hdr->name, "rifle" ) ? true : false;
 #endif
+#ifdef HOE_DLLxxx
+	watch = dynamic_cast<C_BaseViewModel*>(this) != 0;
+#endif // HOE_DLL
 
 	//Adrian: eh? This should never happen.
 	if ( GetSequence() == -1 )
@@ -3821,6 +3864,40 @@ void C_BaseAnimating::FireEvent( const Vector& origin, const QAngle& angles, int
 
 	// Eject brass
 	case CL_EVENT_EJECTBRASS1:
+#ifdef HOE_THIRDPERSON
+	{
+		C_BaseAnimating *pAnimating = this;
+		// If this is the viewmodel an we're in thirdperson, eject brass on the w_model instead.
+		// THIS REQUIRES THE w_model and v_model have the same brass-attachment index.
+		if ( IsViewModel() )
+		{
+			C_BasePlayer *pPlayer = ToBasePlayer( dynamic_cast<C_BaseViewModel *>(this)->GetOwner() );
+			if ( pPlayer && pPlayer == C_BasePlayer::GetLocalPlayer())
+			{
+				if ( ::input->CAM_IsThirdPerson() )
+				{
+					C_BaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+					if ( !pWeapon )
+						break;
+					pAnimating = pWeapon;
+				}
+			}
+		}
+		if ( pAnimating->m_Attachments.Count() > 0 )
+		{
+			if ( MainViewOrigin().DistToSqr( GetAbsOrigin() ) < (256 * 256) )
+			{
+				Vector attachOrigin;
+				QAngle attachAngles; 
+				
+				if( pAnimating->GetAttachment( 2, attachOrigin, attachAngles ) )
+				{
+					tempents->EjectBrass( attachOrigin, attachAngles, GetAbsAngles(), atoi( options ) );
+				}
+			}
+		}
+	}
+#else // HOE_THIRDPERSON
 		if ( m_Attachments.Count() > 0 )
 		{
 			if ( MainViewOrigin().DistToSqr( GetAbsOrigin() ) < (256 * 256) )
@@ -3834,10 +3911,40 @@ void C_BaseAnimating::FireEvent( const Vector& origin, const QAngle& angles, int
 				}
 			}
 		}
+#endif // HOE_THIRDPERSON
 		break;
 
 	case AE_MUZZLEFLASH:
 		{
+#ifdef HOE_THIRDPERSON // From 2010 SDK
+			// HL2MP - Make third person muzzleflashes as reliable as the first person ones
+			// while in third person the view model dispatches the muzzleflash event - note: the weapon models dispatch them too, but not frequently.
+			if ( IsViewModel() )
+			{
+				C_BasePlayer *pPlayer = ToBasePlayer( dynamic_cast<C_BaseViewModel *>(this)->GetOwner() );
+				if ( pPlayer && pPlayer == C_BasePlayer::GetLocalPlayer())
+				{
+					if ( ::input->CAM_IsThirdPerson() )
+					{
+						// Dispatch on the weapon - the player model doesn't have the attachments in hl2mp.
+						C_BaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+						if ( !pWeapon )
+							break;
+						pWeapon->DispatchMuzzleEffect( options, false );
+						break;
+					}
+				}
+			}
+
+			// Check if we're a weapon, if we belong to the local player, and if the local player is in third person - if all are true, don't do a muzzleflash in this instance, because
+			// we're using the view models dispatch for smoothness.
+			if ( dynamic_cast< C_BaseCombatWeapon *>(this) != NULL )
+			{
+				C_BaseCombatWeapon *pWeapon = dynamic_cast< C_BaseCombatWeapon *>(this);
+				if ( pWeapon && pWeapon->GetOwner() == C_BasePlayer::GetLocalPlayer() && ::input->CAM_IsThirdPerson() )
+					break;
+			}
+#endif // HOE_DLL
 			// Send out the effect for a player
 			DispatchMuzzleEffect( options, true );
 			break;
@@ -3845,6 +3952,16 @@ void C_BaseAnimating::FireEvent( const Vector& origin, const QAngle& angles, int
 
 	case AE_NPC_MUZZLEFLASH:
 		{
+#ifdef HOE_THIRDPERSON // Sort of from 2010 SDK
+			// Check if we're a weapon, if we belong to the local player, and if the local player is in third person - if all are true, don't do a muzzleflash in this instance, because
+			// we're using the view models dispatch for smoothness.
+			if ( dynamic_cast< C_BaseCombatWeapon *>(this) != NULL )
+			{
+				C_BaseCombatWeapon *pWeapon = dynamic_cast< C_BaseCombatWeapon *>(this);
+				if ( pWeapon && pWeapon->GetOwner() == C_BasePlayer::GetLocalPlayer() && ::input->CAM_IsThirdPerson() )
+					break;
+			}
+#endif // HOE_DLL
 			// Send out the effect for an NPC
 			DispatchMuzzleEffect( options, false );
 			break;
@@ -4050,6 +4167,37 @@ void C_BaseAnimating::FireObsoleteEvent( const Vector& origin, const QAngle& ang
 				break;
 			}
 
+#ifdef HOE_THIRDPERSON
+			C_BaseAnimating *pAnimating = this;
+			// If this is the viewmodel and we're in thirdperson, eject brass on the w_model instead.
+			// THIS REQUIRES THE w_model and v_model have the same brass-attachment index.
+			if ( IsViewModel() )
+			{
+				C_BasePlayer *pPlayer = ToBasePlayer( dynamic_cast<C_BaseViewModel *>(this)->GetOwner() );
+				if ( pPlayer && pPlayer == C_BasePlayer::GetLocalPlayer())
+				{
+					if ( ::input->CAM_IsThirdPerson() )
+					{
+						C_BaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+						if ( !pWeapon )
+							break;
+						pAnimating = pWeapon;
+					}
+				}
+			}
+
+			if ( iAttachment != -1 && pAnimating->m_Attachments.Count() > iAttachment )
+			{
+				pAnimating->GetAttachment( iAttachment+1, attachOrigin, attachAngles );
+
+				// Fill out the generic data
+				CEffectData data;
+				data.m_vOrigin = attachOrigin;
+				data.m_vAngles = attachAngles;
+				AngleVectors( attachAngles, &data.m_vNormal );
+				data.m_hEntity = pAnimating->GetRefEHandle();
+				data.m_nAttachmentIndex = iAttachment + 1;
+#else
 			if ( iAttachment != -1 && m_Attachments.Count() > iAttachment )
 			{
 				GetAttachment( iAttachment+1, attachOrigin, attachAngles );
@@ -4061,6 +4209,7 @@ void C_BaseAnimating::FireObsoleteEvent( const Vector& origin, const QAngle& ang
 				AngleVectors( attachAngles, &data.m_vNormal );
 				data.m_hEntity = GetRefEHandle();
 				data.m_nAttachmentIndex = iAttachment + 1;
+#endif
 
 				DispatchEffect( options, data );
 			}
@@ -4121,6 +4270,34 @@ void C_BaseAnimating::FireObsoleteEvent( const Vector& origin, const QAngle& ang
 				break;
 			}
 
+#ifdef HOE_DLLxxx
+			// 2010 SDK
+			// HACKHACKHACK for third person. Will hacks ever be unnecessary? -- These Events are obsolete
+			// in third person, make first person muzzle flashes NOT dispatch!
+			if ( IsViewModel() )
+			{
+				C_BasePlayer *pPlayer = ToBasePlayer( dynamic_cast<C_BaseViewModel *>(this)->GetOwner() );
+				if ( pPlayer && pPlayer == C_BasePlayer::GetLocalPlayer())
+				{
+					if ( ::input->CAM_IsThirdPerson() )
+					{
+// Don't do anything now, the sample weapon models in the new SDK don't use these events anymore - just back out if any models are 'taken' from other mods like css.
+#if 0	
+						// Dispatch on the weapon 
+						C_BaseCombatWeapon *pWeapon = pPlayer->GetActiveWeapon();
+						if ( !pWeapon )	break;
+						
+						if ( iAttachment != -1 )
+						{
+							if ( pWeapon->GetAttachment( iAttachment+1, attachOrigin, attachAngles ) )
+								tempents->MuzzleFlash( attachOrigin, attachAngles, atoi( options ), pWeapon->GetRefEHandle(), false );
+						}
+#endif
+						break;
+					}
+				}
+			}
+#endif // HOE_DLL
 			if ( iAttachment != -1 && m_Attachments.Count() > iAttachment )
 			{
 				GetAttachment( iAttachment+1, attachOrigin, attachAngles );
@@ -4369,6 +4546,11 @@ void C_BaseAnimating::RagdollMoved( void )
 
 	// If the ragdoll moves, its render-to-texture shadow is dirty
 	InvalidatePhysicsRecursive( ANIMATION_CHANGED ); 
+
+#ifdef HOE_DLL
+	extern void HOERagdollMoved( void *ragdoll, const Vector &origin );
+	HOERagdollMoved( this, GetAbsOrigin() );
+#endif // HOE_DLL
 }
 
 
@@ -4601,6 +4783,10 @@ C_BaseAnimating *C_BaseAnimating::CreateRagdollCopy()
 	pRagdoll->m_vecForce = m_vecForce;
 	pRagdoll->m_nForceBone = m_nForceBone;
 	pRagdoll->SetNextClientThink( CLIENT_THINK_ALWAYS );
+
+#ifdef HOE_DLL
+	pRagdoll->SetBloodColor( BloodColor() );
+#endif // HOE_DLL
 
 	pRagdoll->SetModelName( AllocPooledString(pModelName) );
 	pRagdoll->SetModelScale( GetModelScale() );

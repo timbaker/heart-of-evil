@@ -1379,7 +1379,17 @@ void UTIL_BloodStream( const Vector &origin, const Vector &direction, int color,
 		color = 0;
 
 	CPVSFilter filter( origin );
+#ifdef HOE_DLL
+	Color rgb(0, 0, 0);
+	switch ( color )
+	{
+	case BLOOD_COLOR_RED: rgb.SetColor(247, 0, 0); break;
+	case BLOOD_COLOR_GREEN: rgb.SetColor(0, 195, 195); break;
+	}
+	te->BloodStream( filter, 0.0, &origin, &direction, rgb.r(), rgb.g(), rgb.b(), 255, min( amount, 255 ) );
+#else
 	te->BloodStream( filter, 0.0, &origin, &direction, 247, 63, 14, 255, MIN( amount, 255 ) );
+#endif
 }				
 
 

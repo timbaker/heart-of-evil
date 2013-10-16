@@ -39,6 +39,12 @@ public:
 
 	bool			FindLos( const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, Vector *pResult );
 	bool			FindLos( const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, FlankType_t eFlankType, const Vector &VecFlankRefPos, float flFlankParam, Vector *pResult );
+#ifdef HOE_DLL
+	bool			FindLosFromThreatPos( const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, Vector *pResult );
+	bool			FindLosFromThreatPos( const Vector &threatPos, const Vector &threatEyePos, float minThreatDist, float maxThreatDist, float blockTime, FlankType_t eFlankType, const Vector &VecFlankRefPos, float flFlankParam, Vector *pResult );
+	bool			FindStrafeLos( const Vector &threatPos, float flMinDist, float flMaxDist, Vector *pResult );
+	bool			FindCoverPosFromSounds( const CUtlVector< CSound *>& sounds, float flMinDist, float flMaxDist, Vector *pResult );
+#endif
 	bool			FindLateralLos( const Vector &threatPos, Vector *pResult );
 	bool			FindBackAwayPos( const Vector &vecThreat, Vector *pResult );
 	bool			FindCoverPos( const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinDist, float flMaxDist, Vector *pResult );
@@ -57,8 +63,14 @@ private:
 	int				FindBackAwayNode( const Vector &vecThreat );
 	int				FindCoverNode( const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinDist, float flMaxDist );
 	int				FindCoverNode( const Vector &vNearPos, const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinDist, float flMaxDist );
+#ifdef HOE_DLL
+	int				FindLosNode( const Vector &vStartPos, const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinThreatDist, float flMaxThreatDist, float flBlockTime, FlankType_t eFlankType, const Vector &vThreatFacing, float flFlankParam );
+	int				FindCoverNodeFromSounds( const CUtlVector< CSound *>& sounds, const Vector &vNearPos, float flMinDist, float flMaxDist );
+	bool			CanHearSoundAtPos( const CUtlVector< CSound *>& sounds, const Vector &vEarPos );
+#else
 	int				FindLosNode( const Vector &vThreatPos, const Vector &vThreatEyePos, float flMinThreatDist, float flMaxThreatDist, float flBlockTime, FlankType_t eFlankType, const Vector &vThreatFacing, float flFlankParam );
-	
+#endif
+
 	Vector			GetNodePos( int );
 
 	CAI_Network *GetNetwork()				{ return m_pNetwork; }

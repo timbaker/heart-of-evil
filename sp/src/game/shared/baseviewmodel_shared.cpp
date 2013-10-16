@@ -339,6 +339,11 @@ void CBaseViewModel::SetWeaponModel( const char *modelname, CBaseCombatWeapon *w
 		SetControlPanelsActive( showControlPanels );
 	}
 #endif
+#ifdef HOE_DLL
+	// Allow weapons to SetBodygroup() on the viewmodel.
+	// This will clean up the bodygroup when switching weapons.
+	m_nBody = 0;
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------
@@ -421,6 +426,29 @@ void CBaseViewModel::CalcViewModelView( CBasePlayer *owner, const Vector& eyePos
 	}
 #endif
 
+#ifdef HOE_DLL
+	// Allow the weapon to totally override the view.
+	// Added for sniper rifle zoom in/out.
+	if ( pWeapon && pWeapon->CalcViewModelView( this, eyePosition, eyeAngles, vmorigin, vmangles ) )
+	{
+	}
+#endif // HOE_DLL
+#ifdef HOE_IRONSIGHTSxxx
+	if ( pWeapon && pWeapon->IsIronSightsActive() )
+	{
+		Vector offset = pWeapon->GetIronSights_Origin();
+		QAngle ang = eyeAngles + pWeapon->GetIronSights_Angles();
+
+		Vector forward, right, up;
+		AngleVectors(ang, &forward, &right, &up);
+
+		vmorigin = eyePosition;
+		vmorigin += right * offset.x;
+		vmorigin += forward * offset.y;
+		vmorigin += up * offset.z;
+	}
+#endif // HOE_IRONSIGHTS
+
 	if( UseVR() )
 	{
 		g_ClientVirtualReality.OverrideViewModelTransform( vmorigin, vmangles, pWeapon && pWeapon->ShouldUseLargeViewModelVROverride() );
@@ -473,12 +501,67 @@ void CBaseViewModel::CalcViewModelLag( Vector& origin, QAngle& angles, QAngle& o
 	Vector	forward;
 	AngleVectors( angles, &forward, NULL, NULL );
 
+#ifdef HOE_IRONSIGHTS
+	extern ConVar hoe_ironsights_delay;
+	#define IRONSIGHTS_DURATION max(hoe_ironsights_delay.GetFloat(),0.1)
+
+	CBaseCombatWeapon *pWeapon = m_hWeapon.Get();
+	CBaseCombatWeapon::WeaponIronSightState_t state = pWeapon ? pWeapon->GetIronSightsState() : 
+		CBaseCombatWeapon::IRONSIGHT_STATE_NONE;
+#endif // HOE_IRONSIGHTS
+
 	if ( gpGlobals->frametime != 0.0f )
 	{
 		Vector vDifference;
 		VectorSubtract( forward, m_vecLastFacing, vDifference );
 
 		float flSpeed = 5.0f;
+
+#ifdef HOE_IRONSIGHTS
+		float lerpOrgFrac = 1.0f;
+
+		// Decrease lag time when ironsighted
+		if ( pWeapon )
+		{
+			if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_ACTIVE )
+			{
+				flSpeed *= 3.0f;
+				lerpOrgFrac = 0.25f;
+			}
+			else if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_TO )
+			{
+				float flFrac = (gpGlobals->curtime - pWeapon->m_flIronSightsToggleTime) / IRONSIGHTS_DURATION;
+				flFrac = clamp( flFrac, 0.0f, 1.0f );
+				flSpeed = Lerp( flFrac, flSpeed, flSpeed * 3.0f );
+				lerpOrgFrac = Lerp( flFrac, 1.0f, 0.25f );
+			}
+			else if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_FROM )
+			{
+				float flFrac = (gpGlobals->curtime - pWeapon->m_flIronSightsToggleTime) / IRONSIGHTS_DURATION;
+				flFrac = clamp( flFrac, 0.0f, 1.0f );
+				flSpeed = Lerp( flFrac, flSpeed * 3.0f, flSpeed );
+				lerpOrgFrac = Lerp( flFrac, 0.25f, 1.0f );
+			}
+		}
+
+		// If we start to lag too far behind, we'll increase the "catch up" speed.  Solves the problem with fast cl_yawspeed, m_yaw or joysticks
+		//  rotating quickly.  The old code would slam lastfacing with origin causing the viewmodel to pop to a new position
+		float flDiff = vDifference.Length();
+		if ( (flDiff > g_fMaxViewModelLag) && (g_fMaxViewModelLag > 0.0f) )
+		{
+			float flScale = flDiff / g_fMaxViewModelLag;
+			flSpeed *= flScale;
+		}
+
+		// FIXME:  Needs to be predictable?
+		VectorMA( m_vecLastFacing, flSpeed * gpGlobals->frametime, vDifference, m_vecLastFacing );
+		// Make sure it doesn't grow out of control!!!
+		VectorNormalize( m_vecLastFacing );
+		Vector vecNewOrigin;
+		VectorMA( origin, 5.0f, vDifference * -1.0f, vecNewOrigin );
+		VectorLerp( origin, vecNewOrigin, lerpOrgFrac, origin );
+		Assert( m_vecLastFacing.IsValid() );
+#else // HOE_IRONSIGHTS
 
 		// If we start to lag too far behind, we'll increase the "catch up" speed.  Solves the problem with fast cl_yawspeed, m_yaw or joysticks
 		//  rotating quickly.  The old code would slam lastfacing with origin causing the viewmodel to pop to a new position
@@ -496,7 +579,14 @@ void CBaseViewModel::CalcViewModelLag( Vector& origin, QAngle& angles, QAngle& o
 		VectorMA( origin, 5.0f, vDifference * -1.0f, origin );
 
 		Assert( m_vecLastFacing.IsValid() );
+#endif // HOE_IRONSIGHTS
 	}
+
+#ifdef HOE_IRONSIGHTS
+	// Stop the ironsights getting twisted left/right based on pitch of the player's view.
+	if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_ACTIVE )
+		return;
+#endif // HOE_IRONSIGHTS
 
 	Vector right, up;
 	AngleVectors( original_angles, &forward, &right, &up );
@@ -506,6 +596,21 @@ void CBaseViewModel::CalcViewModelLag( Vector& origin, QAngle& angles, QAngle& o
 		pitch -= 360.0f;
 	else if ( pitch < -180.0f )
 		pitch += 360.0f;
+
+#ifdef HOE_IRONSIGHTS
+	if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_TO )
+	{
+		float flFrac = (gpGlobals->curtime - pWeapon->m_flIronSightsToggleTime) / IRONSIGHTS_DURATION;
+		flFrac = clamp( flFrac, 0.0f, 1.0f );
+		pitch = Lerp( flFrac, pitch, 0.0f );
+	}
+	else if ( state == CBaseCombatWeapon::IRONSIGHT_STATE_FROM )
+	{
+		float flFrac = (gpGlobals->curtime - pWeapon->m_flIronSightsToggleTime) / IRONSIGHTS_DURATION;
+		flFrac = clamp( flFrac, 0.0f, 1.0f );
+		pitch = Lerp( flFrac, 0.0f, pitch );
+	}
+#endif // HOE_IRONSIGHTS
 
 	if ( g_fMaxViewModelLag == 0.0f )
 	{

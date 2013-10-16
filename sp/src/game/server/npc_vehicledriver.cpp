@@ -918,6 +918,28 @@ void CNPC_VehicleDriver::DriveVehicle( void )
 		flDotRight *= -1;
 	}
 	// Map it to the vehicle's steering
+#ifdef HOE_DLL
+	float flDotForward = flDot;
+	float flTurnInDeg = RAD2DEG( acos(flDotForward) );
+DevMsg("flTurnInDeg %.2f (max %.2f)\n", flTurnInDeg, m_flSteering);
+	flSpeed = flTurnInDeg;
+	flSpeed += flSpeed * flTurnInDeg/45.0;
+	flSpeed = min( m_flSteering, flSpeed );
+	if ( flDotRight < 0 )
+	{
+		// Turn left
+		m_pVehicleInterface->NPC_TurnLeft( flSpeed );
+	}
+	else if ( flDotRight > 0 )
+	{
+		// Turn right
+		m_pVehicleInterface->NPC_TurnRight( flSpeed );
+	}
+	else
+	{
+		m_pVehicleInterface->NPC_TurnCenter();
+	}
+#else // HOE_DLL
 	flDotRight *= (m_flSteering / 90);
 
 	if ( flDotRight < 0 )
@@ -934,6 +956,7 @@ void CNPC_VehicleDriver::DriveVehicle( void )
 	{
 		m_pVehicleInterface->NPC_TurnCenter();
 	}
+#endif // HOE_DLL
 }
 
 //-----------------------------------------------------------------------------

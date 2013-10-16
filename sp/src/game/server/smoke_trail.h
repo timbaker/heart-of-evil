@@ -163,6 +163,9 @@ public:
 	DECLARE_SERVERCLASS();
 
 	static CFireTrail	*CreateFireTrail( void );
+#ifdef HOE_DLL
+	void				Spawn( void );
+#endif // HOE_DLL
 	void				FollowEntity( CBaseEntity *pEntity, const char *pAttachmentName );
 	void				Precache( void );
 

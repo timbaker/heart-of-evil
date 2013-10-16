@@ -9,6 +9,9 @@
 #include "hl2_gamerules.h"
 #include "ammodef.h"
 #include "hl2_shareddefs.h"
+#ifdef HOE_DLL
+#include "filesystem.h"
+#endif
 
 #ifdef CLIENT_DLL
 
@@ -180,6 +183,45 @@ ConVar	sk_max_gauss_round		( "sk_max_gauss_round", "0", FCVAR_REPLICATED );
 // Gunship & Dropship cannons
 ConVar	sk_npc_dmg_gunship			( "sk_npc_dmg_gunship", "0", FCVAR_REPLICATED );
 ConVar	sk_npc_dmg_gunship_to_plr	( "sk_npc_dmg_gunship_to_plr", "0", FCVAR_REPLICATED );
+
+#ifdef HOE_DLL
+ConVar	sk_plr_762_bullet			( "sk_plr_762_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_762_bullet			( "sk_npc_762_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_762_bullet			( "sk_max_762_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_762x39_bullet		( "sk_plr_762x39_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_762x39_bullet		( "sk_npc_762x39_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_762x39_bullet		( "sk_max_762x39_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_9mmAR_grenade		( "sk_plr_9mmAR_grenade", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_9mmAR_grenade		( "sk_npc_9mmAR_grenade", "0", FCVAR_REPLICATED );
+ConVar	sk_max_9mmAR_grenade		( "sk_max_9mmAR_grenade", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_1143_bullet			( "sk_plr_1143_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_1143_bullet			( "sk_npc_1143_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_1143_bullet			( "sk_max_1143_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_12mm_bullet			( "sk_plr_12mm_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_12mm_bullet			( "sk_npc_12mm_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_12mm_bullet			( "sk_max_12mm_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_m16_bullet			( "sk_plr_m16_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_m16_bullet			( "sk_npc_m16_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_m16_bullet			( "sk_max_m16_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_m21_bullet			( "sk_plr_m21_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_m21_bullet			( "sk_npc_m21_bullet", "0", FCVAR_REPLICATED );
+ConVar	sk_max_m21_bullet			( "sk_max_m21_bullet", "0", FCVAR_REPLICATED );
+
+ConVar	sk_plr_dmg_elephantshot		( "sk_plr_dmg_elephantshot", "0", FCVAR_REPLICATED );
+ConVar	sk_npc_dmg_elephantshot		( "sk_npc_dmg_elephantshot", "0", FCVAR_REPLICATED );
+ConVar	sk_max_elephantshot			( "sk_max_elephantshot", "0", FCVAR_REPLICATED );
+
+extern ConVar	sk_plr_dmg_tripmine;
+extern ConVar	sk_npc_dmg_tripmine;
+ConVar	sk_max_tripmine				( "sk_max_tripmine", "0", FCVAR_REPLICATED );
+
+#endif // HOE_DLL
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -1277,6 +1319,11 @@ ConVar  alyx_darkness_force( "alyx_darkness_force", "0", FCVAR_CHEAT | FCVAR_REP
 		CBaseCombatCharacter::SetDefaultRelationship(CLASS_HACKED_ROLLERMINE,			CLASS_PLAYER_ALLY,		D_LI, 0);
 		CBaseCombatCharacter::SetDefaultRelationship(CLASS_HACKED_ROLLERMINE,			CLASS_PLAYER_ALLY_VITAL,D_LI, 0);
 		CBaseCombatCharacter::SetDefaultRelationship(CLASS_HACKED_ROLLERMINE,			CLASS_HACKED_ROLLERMINE,D_LI, 0);
+
+#ifdef HOE_DLL
+		extern void ReadRelationshipsScript( void );
+		ReadRelationshipsScript();
+#endif // HOE_DLL
 	}
 
 
@@ -1315,7 +1362,15 @@ ConVar  alyx_darkness_force( "alyx_darkness_force", "0", FCVAR_CHEAT | FCVAR_REP
 			case CLASS_FLARE:			return "CLASS_FLARE";
 			case CLASS_EARTH_FAUNA:		return "CLASS_EARTH_FAUNA";
 
+#ifdef HOE_DLL
+			default:
+			{
+				extern const char *RelationshipClassText( int classType );
+				return RelationshipClassText( classType );
+			}
+#else // HOE_DLL
 			default:					return "MISSING CLASS in ClassifyText()";
+#endif // HOE_DLL
 		}
 	}
 
@@ -1412,10 +1467,11 @@ ConVar  alyx_darkness_force( "alyx_darkness_force", "0", FCVAR_CHEAT | FCVAR_REP
 					{
 						if( PhysCannonAccountableForObject(pCannon, info.GetInflictor() ) )
 						{
+#ifndef HOE_DLL
 							// Antlions can always be squashed!
 							if ( pVictim->Classify() == CLASS_ANTLION )
 								return true;
-
+#endif
   							return false;
 						}
 					}
@@ -1497,7 +1553,19 @@ bool CHalfLife2::ShouldCollide( int collisionGroup0, int collisionGroup1 )
 		collisionGroup0 = collisionGroup1;
 		collisionGroup1 = tmp;
 	}
-	
+
+#ifdef HOE_DLL
+#define HOECOLLISION_GROUP_CORPSE (HL2COLLISION_GROUP_COMBINE_BALL_NPC+1)
+	if ( collisionGroup0 == collisionGroup1 && collisionGroup0 == HOECOLLISION_GROUP_CORPSE )
+		return true;
+//	if ( collisionGroup1 == HOECOLLISION_GROUP_CORPSE && collisionGroup0 == COLLISION_GROUP_WEAPON )
+//		return true;
+	if ( collisionGroup0 == HOECOLLISION_GROUP_CORPSE )
+		collisionGroup0 = COLLISION_GROUP_DEBRIS;
+	if ( collisionGroup1 == HOECOLLISION_GROUP_CORPSE )
+		collisionGroup1 = COLLISION_GROUP_DEBRIS;
+#endif // HOE_DLL
+
 	// Prevent the player movement from colliding with spit globs (caused the player to jump on top of globs while in water)
 	if ( collisionGroup0 == COLLISION_GROUP_PLAYER_MOVEMENT && collisionGroup1 == HL2COLLISION_GROUP_SPIT )
 		return false;
@@ -1550,7 +1618,11 @@ bool CHalfLife2::ShouldCollide( int collisionGroup0, int collisionGroup1 )
 	}
 
 	if (collisionGroup0 == HL2COLLISION_GROUP_HOUNDEYE && collisionGroup1 == HL2COLLISION_GROUP_HOUNDEYE )
+#ifdef HOE_DLL
+		return true;
+#else
 		return false;
+#endif
 
 	if (collisionGroup0 == HL2COLLISION_GROUP_HOMING_MISSILE && collisionGroup1 == HL2COLLISION_GROUP_HOMING_MISSILE )
 		return false;
@@ -1815,9 +1887,11 @@ CAmmoDef *GetAmmoDef()
 		def.AddAmmoType("Gravity",			DMG_CLUB,					TRACER_NONE,			0,	0, 8, 0, 0 );
 //		def.AddAmmoType("Extinguisher",		DMG_BURN,					TRACER_NONE,			0,	0, 100, 0, 0 );
 		def.AddAmmoType("Battery",			DMG_CLUB,					TRACER_NONE,			NULL, NULL, NULL, 0, 0 );
+#ifndef HOE_DLL
 		def.AddAmmoType("GaussEnergy",		DMG_SHOCK,					TRACER_NONE,			"sk_jeep_gauss_damage",		"sk_jeep_gauss_damage", "sk_max_gauss_round", BULLET_IMPULSE(650, 8000), 0 ); // hit like a 10kg weight at 400 in/s
 		def.AddAmmoType("CombineCannon",	DMG_BULLET,					TRACER_LINE,			"sk_npc_dmg_gunship_to_plr", "sk_npc_dmg_gunship", NULL, 1.5 * 750 * 12, 0 ); // hit like a 1.5kg weight at 750 ft/s
 		def.AddAmmoType("AirboatGun",		DMG_AIRBOAT,				TRACER_LINE,			"sk_plr_dmg_airboat",		"sk_npc_dmg_airboat",		NULL,					BULLET_IMPULSE(10, 600), 0 );
+#endif // HOE_DLL
 
 		//=====================================================================
 		// STRIDER MINIGUN DAMAGE - Pull up a chair and I'll tell you a tale.
@@ -1863,14 +1937,31 @@ CAmmoDef *GetAmmoDef()
 #endif//HL2_EPISODIC
 
 		def.AddAmmoType("StriderMinigunDirect",	DMG_BULLET,				TRACER_LINE,			2, 2, 15, 1.0 * 750 * 12, AMMO_FORCE_DROP_IF_CARRIED ); // hit like a 1.0kg weight at 750 ft/s
+#ifndef HOE_DLL
 		def.AddAmmoType("HelicopterGun",	DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_npc_dmg_helicopter_to_plr", "sk_npc_dmg_helicopter",	"sk_max_smg1",	BULLET_IMPULSE(400, 1225), AMMO_FORCE_DROP_IF_CARRIED | AMMO_INTERPRET_PLRDAMAGE_AS_DAMAGE_TO_PLAYER );
+#endif // HOE_DLL
 		def.AddAmmoType("AR2AltFire",		DMG_DISSOLVE,				TRACER_NONE,			0, 0, "sk_max_ar2_altfire", 0, 0 );
 		def.AddAmmoType("Grenade",			DMG_BURN,					TRACER_NONE,			"sk_plr_dmg_grenade",		"sk_npc_dmg_grenade",		"sk_max_grenade",		0, 0);
 #ifdef HL2_EPISODIC
+#ifndef HOE_DLL
 		def.AddAmmoType("Hopwire",			DMG_BLAST,					TRACER_NONE,			"sk_plr_dmg_grenade",		"sk_npc_dmg_grenade",		"sk_max_hopwire",		0, 0);
 		def.AddAmmoType("CombineHeavyCannon",	DMG_BULLET,				TRACER_LINE,			40,	40, NULL, 10 * 750 * 12, AMMO_FORCE_DROP_IF_CARRIED ); // hit like a 10 kg weight at 750 ft/s
 		def.AddAmmoType("ammo_proto1",			DMG_BULLET,				TRACER_LINE,			0, 0, 10, 0, 0 );
+#endif // HOE_DLL
 #endif // HL2_EPISODIC
+#ifdef HOE_DLL
+		def.AddAmmoType("5_56mm",			DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_plr_m16_bullet",		"sk_npc_m16_bullet",		"sk_max_m16_bullet",		BULLET_IMPULSE(200, 1225), 0);
+		def.AddAmmoType("7_62mm",			DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_plr_762_bullet",		"sk_npc_762_bullet",		"sk_max_762_bullet",		BULLET_IMPULSE(400, 2000), 0 );
+		def.AddAmmoType("7_62x39mm_M1943",	DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_plr_762x39_bullet",		"sk_npc_762x39_bullet",		"sk_max_762x39_bullet",		BULLET_IMPULSE(200, 1225), 0 );
+		def.AddAmmoType("11_43mm",			DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_plr_1143_bullet",		"sk_npc_1143_bullet",		"sk_max_1143_bullet",		BULLET_IMPULSE(800, 5000), 0);
+		def.AddAmmoType("12mm",				DMG_BULLET,					TRACER_LINE_AND_WHIZ,	"sk_plr_12mm_bullet",		"sk_npc_12mm_bullet",		"sk_max_12mm_bullet",		BULLET_IMPULSE(200, 1225), 0);
+		def.AddAmmoType("AR_Grenade",		DMG_BURN,					TRACER_NONE,			"sk_plr_9mmAR_grenade",		"sk_npc_9mmAR_grenade",		"sk_max_9mmAR_grenade",	0, 0 );
+		def.AddAmmoType("Elephantshot",		DMG_BULLET | DMG_BUCKSHOT,	TRACER_LINE,			"sk_plr_dmg_elephantshot",	"sk_npc_dmg_elephantshot",	"sk_max_elephantshot",		BULLET_IMPULSE(400, 1200), 0 );
+		def.AddAmmoType("Gas",				DMG_GENERIC,				TRACER_NONE,			0,		0,		80,		0, 0);
+		def.AddAmmoType("m21",				DMG_BULLET,					TRACER_NONE,			"sk_plr_m21_bullet",		"sk_npc_m21_bullet",		"sk_max_m21_bullet",		BULLET_IMPULSE(800, 5000), 0 );
+		def.AddAmmoType("Snark",			DMG_GENERIC,				TRACER_NONE,			0,		0,		15,		0, 0);
+		def.AddAmmoType("Tripmine",			DMG_BURN,					TRACER_NONE,			"sk_plr_dmg_tripmine",		"sk_npc_dmg_tripmine",		"sk_max_tripmine",		0, 0);
+#endif // HOE_DLL
 	}
 
 	return &def;

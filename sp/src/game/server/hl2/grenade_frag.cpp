@@ -27,7 +27,11 @@ ConVar sk_plr_dmg_fraggrenade	( "sk_plr_dmg_fraggrenade","0");
 ConVar sk_npc_dmg_fraggrenade	( "sk_npc_dmg_fraggrenade","0");
 ConVar sk_fraggrenade_radius	( "sk_fraggrenade_radius", "0");
 
+#ifdef HOE_DLL
+#define GRENADE_MODEL "models/w_grenade.mdl"
+#else
 #define GRENADE_MODEL "models/Weapons/w_grenade.mdl"
+#endif
 
 class CGrenadeFrag : public CBaseGrenade
 {
@@ -48,7 +52,11 @@ public:
 	void	SetTimer( float detonateDelay, float warnDelay );
 	void	SetVelocity( const Vector &velocity, const AngularImpulse &angVelocity );
 	int		OnTakeDamage( const CTakeDamageInfo &inputInfo );
+#ifdef HOE_DLL
+	void	BlipSound() { }
+#else
 	void	BlipSound() { EmitSound( "Grenade.Blip" ); }
+#endif
 	void	DelayThink();
 	void	VPhysicsUpdate( IPhysicsObject *pPhysics );
 	void	OnPhysGunPickup( CBasePlayer *pPhysGunUser, PhysGunPickup_t reason );
@@ -154,6 +162,9 @@ void CGrenadeFrag::OnRestore( void )
 //-----------------------------------------------------------------------------
 void CGrenadeFrag::CreateEffects( void )
 {
+#ifdef HOE_DLL
+	// nothing
+#else
 	// Start up the eye glow
 	m_pMainGlow = CSprite::SpriteCreate( "sprites/redglow1.vmt", GetLocalOrigin(), false );
 
@@ -180,6 +191,7 @@ void CGrenadeFrag::CreateEffects( void )
 		m_pGlowTrail->SetEndWidth( 1.0f );
 		m_pGlowTrail->SetLifeTime( 0.5f );
 	}
+#endif // HOE_DLL
 }
 
 bool CGrenadeFrag::CreateVPhysics()
